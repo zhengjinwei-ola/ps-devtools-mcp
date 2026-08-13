@@ -42,7 +42,7 @@ PS_TEST_DB_CONFIG_DATABASE=config
 PS_TEST_REDIS_ADDRESS=127.0.0.1:6379
 PS_TEST_REDIS_DATABASE=0
 PS_LOG_MCP_COMMAND=/home/ecs-user/webroot/psl-test-logs-mcp/bin/psl-test-logs-mcp
-PS_LOG_MCP_ARGS_JSON=["--config=/home/ecs-user/webroot/psl-test-logs-mcp/configs/sources.json"]
+PS_LOG_MCP_ARGS_JSON='["--config=/home/ecs-user/webroot/psl-test-logs-mcp/configs/sources.json"]'
 ```
 
 HTTP 模式还需配置：
@@ -50,7 +50,7 @@ HTTP 模式还需配置：
 ```text
 PS_MCP_TRANSPORT=http
 PS_MCP_LISTEN_ADDR=127.0.0.1:18081
-PS_MCP_AUTH_TOKENS_JSON={"alice":"<64-hex-token>"}
+PS_MCP_AUTH_TOKENS_JSON='{"alice":"<64-hex-token>"}'
 ```
 
 部署账号应只有目标日志读取权限，数据库账号应为数据库级只读账号。Redis 即使当前无密码，客户端仍只开放代码白名单中的查询命令。
