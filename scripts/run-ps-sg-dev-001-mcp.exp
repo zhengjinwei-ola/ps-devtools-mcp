@@ -101,9 +101,20 @@ expect {
         log_user 0
         fconfigure stdin -translation binary -blocking 0
         fconfigure stdout -translation lf -buffering line
+        array set pending_echoes {}
         fileevent stdin readable {
             set input [read stdin 65536]
             if {[string length $input] > 0} {
+                foreach line [split $input "\n"] {
+                    set line [string trimright $line "\r"]
+                    if {$line ne ""} {
+                        if {[info exists pending_echoes($line)]} {
+                            incr pending_echoes($line)
+                        } else {
+                            set pending_echoes($line) 1
+                        }
+                    }
+                }
                 send -raw -- $input
             } elseif {[eof stdin]} {
                 fileevent stdin readable {}
@@ -113,8 +124,13 @@ expect {
         set timeout -1
         expect {
             -re {(\{[^\r\n]*\})\r?\n} {
-                puts stdout $expect_out(1,string)
-                flush stdout
+                set line $expect_out(1,string)
+                if {[info exists pending_echoes($line)] && $pending_echoes($line) > 0} {
+                    incr pending_echoes($line) -1
+                } else {
+                    puts stdout $line
+                    flush stdout
+                }
                 exp_continue
             }
             -re {\x1b\]0;GateShell} { exit 0 }
