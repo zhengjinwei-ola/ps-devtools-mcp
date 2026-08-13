@@ -63,7 +63,7 @@ expect {
 }
 
 expect {
-    -re {ecs-user@[^\r\n]+:~|➜} {}
+    -re {ecs-user@[^\r\n]+:~|➜|\$ } {}
     timeout {
         puts stderr "timed out waiting for ${target_name} shell"
         exit 70
@@ -80,7 +80,7 @@ expect {
 # into the MCP protocol stream.
 send -- "stty -echo\r"
 expect {
-    -re {ecs-user@[^\r\n]+:~|➜} {}
+    -re {ecs-user@[^\r\n]+:~|➜|\$ } {}
     timeout {
         puts stderr "timed out disabling terminal echo on ${target_name}"
         exit 70
