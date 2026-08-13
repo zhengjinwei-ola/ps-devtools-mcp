@@ -1,0 +1,132 @@
+#!/usr/bin/expect -f
+
+# Starts a stdio MCP process on ps-sg-dev-001 through the existing GateShell
+# login helper. Authentication remains owned by ~/.ssh/login_inner; this file
+# intentionally contains no password, MFA seed, or generated one-time code.
+
+set timeout 30
+set send_slow {1 .15}
+match_max 1048576
+set login_helper "/Users/oswin/.ssh/login_inner"
+set target_name "ps-sg-dev-001"
+set target_ip "192.168.35.221"
+
+if {$argc == 0} {
+    puts stderr "usage: [file tail $argv0] <remote-mcp-command> ?arg ...?"
+    exit 64
+}
+
+if {![file executable $login_helper]} {
+    puts stderr "login helper is not executable: $login_helper"
+    exit 69
+}
+
+# Arguments are deliberately restricted so an MCP configuration cannot turn
+# this launcher into a general-purpose remote shell. Normal executable paths,
+# flags, addresses, and environment-style values remain supported.
+set remote_parts {}
+foreach value $argv {
+    if {![regexp {^[A-Za-z0-9_./:=+@,-]+$} $value]} {
+        puts stderr "unsupported character in remote MCP argument"
+        exit 64
+    }
+    lappend remote_parts $value
+}
+set remote_command [join $remote_parts " "]
+
+# GateShell is a full-screen terminal application. Hide all login/menu output
+# so stdout remains clean for MCP JSON-RPC after the ready marker is observed.
+if {[info exists env(PS_MCP_LAUNCHER_DEBUG)] && $env(PS_MCP_LAUNCHER_DEBUG) eq "1"} {
+    log_user 1
+} else {
+    log_user 0
+}
+spawn -noecho $login_helper
+
+expect {
+    -re "004: ${target_name}" {
+        after 1000
+        # GateShell focus starts on Search, then the header, then instance 001.
+        # Six downward moves select instance 004.
+        send -s -- "jjjjjj"
+        after 500
+        send -- "\r"
+    }
+    timeout {
+        puts stderr "timed out waiting for GateShell target ${target_name}"
+        exit 70
+    }
+    eof {
+        puts stderr "jump login ended before target selection"
+        exit 70
+    }
+}
+
+expect {
+    -re {ecs-user@[^\r\n]+:~|➜} {}
+    timeout {
+        puts stderr "timed out waiting for ${target_name} shell"
+        exit 70
+    }
+    eof {
+        puts stderr "target session ended before MCP startup"
+        exit 70
+    }
+}
+
+# Disable terminal echo before sending the command. The marker is assembled by
+# printf so the echoed command line cannot be mistaken for readiness. Remote
+# stderr is discarded because GateShell uses one PTY and would otherwise mix it
+# into the MCP protocol stream.
+send -- "stty -echo\r"
+expect {
+    -re {ecs-user@[^\r\n]+:~|➜} {}
+    timeout {
+        puts stderr "timed out disabling terminal echo on ${target_name}"
+        exit 70
+    }
+    eof {
+        puts stderr "target session ended before MCP startup"
+        exit 70
+    }
+}
+
+send -- "hostname -I | tr ' ' '\\n' | grep -qx '${target_ip}' || exit 69; printf '__PS_%s_READY__\\n' MCP; exec ${remote_command} 2>/dev/null\r"
+expect {
+    -re {__PS_MCP_READY__\r?\n} {
+        # GateShell always uses a PTY and restores its full-screen menu when the
+        # remote command exits. Bridge stdin explicitly and emit only complete
+        # JSON-RPC object lines, so terminal control sequences cannot reach the
+        # MCP client.
+        log_user 0
+        fconfigure stdin -translation binary -blocking 0
+        fconfigure stdout -translation lf -buffering line
+        fileevent stdin readable {
+            set input [read stdin 65536]
+            if {[string length $input] > 0} {
+                send -raw -- $input
+            } elseif {[eof stdin]} {
+                fileevent stdin readable {}
+                send -raw -- "\004"
+            }
+        }
+        set timeout -1
+        expect {
+            -re {(\{[^\r\n]*\})\r?\n} {
+                puts stdout $expect_out(1,string)
+                flush stdout
+                exp_continue
+            }
+            -re {\x1b\]0;GateShell} { exit 0 }
+            eof { exit 0 }
+        }
+    }
+    timeout {
+        puts stderr "remote MCP did not become ready on ${target_name}"
+        exit 70
+    }
+    eof {
+        puts stderr "remote MCP exited before becoming ready"
+        exit 70
+    }
+}

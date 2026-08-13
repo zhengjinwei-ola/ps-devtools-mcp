@@ -1,0 +1,15 @@
+{
+  "endpoints": [
+    {
+      "name": "gk-external-ping",
+      "url": "http://8.222.163.85:9604/ping",
+      "method": "GET"
+    },
+    {
+      "name": "gk-commodity-ping",
+      "url": "http://8.222.163.85:9608/ping",
+      "method": "GET"
+    }
+  ],
+  "max_response_bytes": 65536
+}

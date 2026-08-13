@@ -1,0 +1,12 @@
+{
+  "endpoints": [
+    {
+      "name": "example-read-only-endpoint",
+      "url": "https://test-gateway.example.invalid/api/read-only",
+      "method": "POST",
+      "allowed_query_keys": ["uid"],
+      "allowed_body_fields": ["page", "page_size"]
+    }
+  ],
+  "max_response_bytes": 524288
+}

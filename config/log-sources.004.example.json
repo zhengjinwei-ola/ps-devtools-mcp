@@ -1,0 +1,45 @@
+{
+  "sources": [
+    {
+      "name": "legacy-http",
+      "patterns": [
+        "/home/ecs-user/log/ps.http.stdout.log",
+        "/home/ecs-user/log/ps.http.stderr.log"
+      ]
+    },
+    {
+      "name": "legacy-rpc",
+      "patterns": [
+        "/home/ecs-user/log/ps.rpc.stdout.log",
+        "/home/ecs-user/log/ps.rpc.stderr.log"
+      ]
+    },
+    {
+      "name": "legacy-user-rpc",
+      "patterns": [
+        "/home/ecs-user/log/ps.rpc.user.stdout.log",
+        "/home/ecs-user/log/ps.rpc.user.stderr.log"
+      ]
+    },
+    {
+      "name": "legacy-room-rpc",
+      "patterns": [
+        "/home/ecs-user/log/ps.rpc.room.info.stdout.log",
+        "/home/ecs-user/log/ps.rpc.room.info.stderr.log"
+      ]
+    },
+    {
+      "name": "legacy-activity-worker",
+      "patterns": [
+        "/home/ecs-user/log/ps_cmd.activity.log",
+        "/home/ecs-user/log/ps_cmd.activity.stderr.log"
+      ]
+    }
+  ],
+  "runtime_sources": [],
+  "max_files": 40,
+  "max_scan_bytes": 8388608,
+  "max_results": 500,
+  "max_line_bytes": 8192,
+  "max_output_bytes": 524288
+}
