@@ -69,6 +69,35 @@ PS_MCP_AUTH_TOKENS_JSON='{"alice":"<64-hex-token>"}'
 }
 ```
 
+## 004 HTTPS 注册
+
+004 复用 `dev.partystar.cloud` 的现有 TLS 虚拟主机，并通过精确路径
+`/ps-devtools/mcp` 暴露本服务，避免影响该域名下已有项目路由：
+
+```text
+Codex -> https://dev.partystar.cloud/ps-devtools/mcp
+      -> Nginx -> http://127.0.0.1:18081/mcp
+      -> ps-devtools-mcp
+```
+
+部署文件：
+
+- `deploy/supervisor/ps-devtools-mcp.conf`：HTTP MCP 常驻进程；
+- `deploy/nginx/ps-devtools-mcp.location.conf`：加入现有 HTTPS `server` 块的精确路由。
+
+部署前确认 `configs/service.env` 权限为 `0600`，并已设置
+`PS_MCP_TRANSPORT=http`、`PS_MCP_LISTEN_ADDR=127.0.0.1:18081` 和
+`PS_MCP_AUTH_TOKENS_JSON`。先执行 `nginx -t`，通过后再 reload；不得将
+`18081` 的裸 HTTP 端口暴露到公网。
+
+Codex 使用环境变量提供 Bearer Token：
+
+```toml
+[mcp_servers.ps-devtools-remote]
+url = "https://dev.partystar.cloud/ps-devtools/mcp"
+bearer_token_env_var = "PS_DEVTOOLS_REMOTE_TOKEN"
+```
+
 ## 安全限制
 
 - SQL：仅 `SELECT`、`SHOW`、`DESCRIBE`、`DESC`、只读 `EXPLAIN/WITH`；`SELECT/WITH` 强制数字 `LIMIT`。
