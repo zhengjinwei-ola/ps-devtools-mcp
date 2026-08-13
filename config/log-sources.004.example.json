@@ -3,36 +3,38 @@
     {
       "name": "legacy-http",
       "patterns": [
-        "/home/ecs-user/log/ps.http.stdout.log",
-        "/home/ecs-user/log/ps.http.stderr.log"
+        "/home/ecs-user/log/ps_http.log*",
+        "/home/ecs-user/log/ps_http.stderr.log*"
       ]
     },
     {
       "name": "legacy-rpc",
       "patterns": [
-        "/home/ecs-user/log/ps.rpc.stdout.log",
-        "/home/ecs-user/log/ps.rpc.stderr.log"
+        "/home/ecs-user/log/ps_rpc.log*",
+        "/home/ecs-user/log/ps_rpc.stderr.log*"
       ]
     },
     {
-      "name": "legacy-user-rpc",
+      "name": "legacy-http-gateway",
       "patterns": [
-        "/home/ecs-user/log/ps.rpc.user.stdout.log",
-        "/home/ecs-user/log/ps.rpc.user.stderr.log"
+        "/home/ecs-user/log/http-gateway.stdout.log*",
+        "/home/ecs-user/log/http-gateway.stderr.log*"
       ]
     },
     {
-      "name": "legacy-room-rpc",
+      "name": "legacy-room",
       "patterns": [
-        "/home/ecs-user/log/ps.rpc.room.info.stdout.log",
-        "/home/ecs-user/log/ps.rpc.room.info.stderr.log"
+        "/home/ecs-user/log/room_rpc.stdout.log*",
+        "/home/ecs-user/log/room_rpc.stderr.log*",
+        "/home/ecs-user/log/room_http.stdout.log*",
+        "/home/ecs-user/log/room_http.stderr.log*"
       ]
     },
     {
       "name": "legacy-activity-worker",
       "patterns": [
-        "/home/ecs-user/log/ps_cmd.activity.log",
-        "/home/ecs-user/log/ps_cmd.activity.stderr.log"
+        "/home/ecs-user/log/ps_cmd.activity.log*",
+        "/home/ecs-user/log/ps_cmd.activity.stderr.log*"
       ]
     }
   ],
