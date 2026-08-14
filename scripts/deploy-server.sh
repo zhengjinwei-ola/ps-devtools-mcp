@@ -304,10 +304,13 @@ build_source() {
 		psl-be-partystar)
 			(
 				cd "$build_dir"
+				export PATH="/usr/local/go/bin:/home/ecs-user/go/bin:$PATH"
 				if [[ "$run_tests" == true ]]; then
 					go test ./...
 				fi
-				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build
+				# CI_PULL_REQUEST is only used by reviewdog, but the legacy Makefile
+				# otherwise evaluates a gh command even for the build target.
+				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build CI_PULL_REQUEST=
 			)
 			;;
 	esac
