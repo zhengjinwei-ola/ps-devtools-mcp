@@ -16,6 +16,7 @@ import (
 	"github.com/olaola-chat/ps-devtools-mcp/internal/redisinspect"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testapi"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdb"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/testdeploy"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testlogs"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testredis"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/usersnapshot"
@@ -26,6 +27,7 @@ const (
 	defaultTimeout   = 12 * time.Second
 	defaultMaxBodyMB = 2
 	shutdownTimeout  = 10 * time.Second
+	deploymentWindow = 15 * time.Minute
 )
 
 func main() {
@@ -78,6 +80,7 @@ func main() {
 		UserSnapshot:   usersnapshot.NewService(dbClient, logger),
 		RedisInspector: redisinspect.NewService(redisService, logger),
 		ReadOnlyAPI:    testapi.Unavailable{}, TestLogs: testlogs.Unavailable{},
+		TestDeploy: testdeploy.NewService(logger),
 	}
 	if config.ReadOnlyAPIConfig != "" {
 		apiConfig, err := testapi.LoadConfig(config.ReadOnlyAPIConfig)
@@ -128,8 +131,10 @@ func runHTTP(config appconfig.Config, server *mcp.Server, logger *log.Logger) er
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       20 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Deployment is an authenticated, bounded operation but compiling a legacy
+		// Go service can take several minutes on 004.
+		WriteTimeout: deploymentWindow,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -1,13 +1,15 @@
 # PS DevTools MCP
 
-面向 004 旧服务测试机（`ps-sg-dev-001`）的受限只读 MCP。提供：
+面向 004 旧服务测试机（`ps-sg-dev-001`）的受限运维 MCP。提供：
 
 - `query_test_db`：查询 `xianshi`（engine 1）或 `config`（engine 3），只允许单条有界只读 SQL；
 - `query_test_redis` / `inspect_test_redis`：查询 004 本机 Redis，只开放有界只读命令；
 - `list_test_log_sources` / `search_test_logs` / `trace_test_logs`：通过同机日志 MCP 查询白名单日志并脱敏；
 - `get_test_user_snapshot`：读取固定的非敏感用户、VIP 与背包诊断字段。
+- `list_test_deploy_services` / `list_test_deploy_processes` / `plan_test_deployment`：查看白名单部署目标；
+- `deploy_test_service`：构建并部署白名单测试服务的指定 Supervisor 进程。
 
-服务不提供 Shell、任意文件路径、任意 URL 或写操作入口。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
+服务不提供 Shell、任意文件路径或任意 URL。唯一写操作 `deploy_test_service` 只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
 
 ## 架构
 

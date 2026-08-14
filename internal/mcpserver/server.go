@@ -7,6 +7,7 @@ import (
 	"github.com/olaola-chat/ps-devtools-mcp/internal/redisinspect"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testapi"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdb"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/testdeploy"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testlogs"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testredis"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/usersnapshot"
@@ -45,6 +46,13 @@ type testLogService interface {
 	GetRuntime(context.Context, testlogs.GetRuntimeInput) (testlogs.GetRuntimeOutput, error)
 }
 
+type testDeployService interface {
+	ListServices(context.Context, testdeploy.ListServicesInput) (testdeploy.ListServicesOutput, error)
+	ListProcesses(context.Context, testdeploy.ProcessesInput) (testdeploy.ProcessesOutput, error)
+	Plan(context.Context, testdeploy.DeploymentInput) (testdeploy.CommandOutput, error)
+	Deploy(context.Context, testdeploy.DeploymentInput) (testdeploy.CommandOutput, error)
+}
+
 type Services struct {
 	DB             queryService
 	Redis          redisQueryService
@@ -52,6 +60,7 @@ type Services struct {
 	RedisInspector redisInspectorService
 	ReadOnlyAPI    readOnlyAPIService
 	TestLogs       testLogService
+	TestDeploy     testDeployService
 }
 
 func New(services Services) *mcp.Server {
@@ -62,6 +71,30 @@ func New(services Services) *mcp.Server {
 			"or config (engine 3) database. SELECT and WITH queries must include LIMIT.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdb.QueryInput) (*mcp.CallToolResult, testdb.QueryOutput, error) {
 		output, err := services.DB.Query(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "list_test_deploy_services", Description: "List services allowlisted for deployment on the PSL 004 test host.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.ListServicesInput) (*mcp.CallToolResult, testdeploy.ListServicesOutput, error) {
+		output, err := services.TestDeploy.ListServices(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "list_test_deploy_processes", Description: "List Supervisor processes available for an allowlisted service on the PSL 004 test host.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.ProcessesInput) (*mcp.CallToolResult, testdeploy.ProcessesOutput, error) {
+		output, err := services.TestDeploy.ListProcesses(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "plan_test_deployment", Description: "Preview a constrained deployment of selected processes on the PSL 004 test host without changing files or processes.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.DeploymentInput) (*mcp.CallToolResult, testdeploy.CommandOutput, error) {
+		output, err := services.TestDeploy.Plan(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "deploy_test_service", Description: "Build and deploy selected processes of an allowlisted service on the PSL 004 test host. This is a test-environment write operation.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.DeploymentInput) (*mcp.CallToolResult, testdeploy.CommandOutput, error) {
+		output, err := services.TestDeploy.Deploy(ctx, input)
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{
