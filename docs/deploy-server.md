@@ -67,7 +67,7 @@ ps-devtools-mcp/scripts/deploy-server.sh
 - GitHub HTTPS remote 仅在部署命令内改写为 SSH，并显式使用 004 的 `id_rsa` 部署密钥和 `BatchMode` 完成非交互式拉取，不依赖登录会话的 ssh-agent，也不永久修改仓库 remote。
 - 使用临时 Git worktree，不修改服务器常驻仓库的工作副本。
 - 默认先运行 `go test ./...`，历史测试暂时阻塞时可显式传入 `--skip-tests`。
-- 构建显式补充测试机 Go 路径，并跳过仅供 reviewdog 使用的 PR 查询，避免依赖 Supervisor 的精简 PATH 或 GitHub CLI 登录态。
+- 构建显式设置测试机的 Go PATH、GOPATH、模块缓存和构建缓存，并跳过仅供 reviewdog 使用的 PR 查询，避免依赖 Supervisor 的精简环境或 GitHub CLI 登录态。
 - 使用仓库锁定的 submodule commit，不执行远程 submodule 漂移更新。
 - 编译后统一同步二进制、配置、i18n、public 和 template 资源。
 - 已注册进程复用 004 当前 Supervisor 配置，不拆分或覆盖历史聚合配置。

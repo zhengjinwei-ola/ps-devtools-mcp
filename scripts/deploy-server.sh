@@ -305,6 +305,9 @@ build_source() {
 			(
 				cd "$build_dir"
 				export PATH="/usr/local/go/bin:/home/ecs-user/go/bin:$PATH"
+				export GOPATH="/home/ecs-user/go"
+				export GOMODCACHE="$GOPATH/pkg/mod"
+				export GOCACHE="/home/ecs-user/.cache/go-build"
 				if [[ "$run_tests" == true ]]; then
 					go test ./...
 				fi
