@@ -64,7 +64,7 @@ ps-devtools-mcp/scripts/deploy-server.sh
 - 只允许在 004 测试机 `192.168.35.221` 运行。
 - 当前白名单只有 `psl-be-partystar`。
 - 固定构建 `origin/dev` 的精确 commit。
-- GitHub HTTPS remote 仅在部署命令内改写为 SSH，使用测试机部署密钥完成非交互式拉取，不永久修改仓库 remote。
+- GitHub HTTPS remote 仅在部署命令内改写为 SSH，并显式使用 004 的 `id_rsa` 部署密钥和 `BatchMode` 完成非交互式拉取，不依赖登录会话的 ssh-agent，也不永久修改仓库 remote。
 - 使用临时 Git worktree，不修改服务器常驻仓库的工作副本。
 - 默认先运行 `go test ./...`，历史测试暂时阻塞时可显式传入 `--skip-tests`。
 - 使用仓库锁定的 submodule commit，不执行远程 submodule 漂移更新。

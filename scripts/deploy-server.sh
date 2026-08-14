@@ -10,6 +10,7 @@ readonly RELEASE_ROOT="/home/ecs-user/releases"
 readonly DEFAULT_BRANCH="dev"
 readonly DEFAULT_KEEP_BACKUPS=3
 readonly GITHUB_SSH_REWRITE='url.git@github.com:.insteadOf=https://github.com/'
+readonly DEPLOY_GIT_SSH_COMMAND='ssh -i /home/ecs-user/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes'
 
 action="deploy"
 service=""
@@ -286,12 +287,14 @@ prepare_source() {
 
 	# The MCP service is non-interactive. Use the test host's deploy SSH key for
 	# GitHub remotes without permanently rewriting the repository configuration.
-	git -c "$GITHUB_SSH_REWRITE" -C "$repository" fetch --prune origin "$branch"
+	GIT_SSH_COMMAND="$DEPLOY_GIT_SSH_COMMAND" \
+		git -c "$GITHUB_SSH_REWRITE" -C "$repository" fetch --prune origin "$branch"
 	revision=$(git -C "$repository" rev-parse "origin/$branch^{commit}")
 	build_dir=$(mktemp -d "/tmp/deploy-server.$service.${revision:0:12}.XXXXXX")
 	rmdir "$build_dir"
 	git -C "$repository" worktree add --detach "$build_dir" "$revision"
-	git -c "$GITHUB_SSH_REWRITE" -C "$build_dir" submodule update --init --recursive
+	GIT_SSH_COMMAND="$DEPLOY_GIT_SSH_COMMAND" \
+		git -c "$GITHUB_SSH_REWRITE" -C "$build_dir" submodule update --init --recursive
 	printf '%s\n' "$revision" >"$build_dir/.deploy-revision"
 	log "source revision: $revision"
 }

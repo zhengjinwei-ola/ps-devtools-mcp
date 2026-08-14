@@ -38,6 +38,7 @@ assert_eq $'go.ps_cmd.activity\ngo.ps_http\ngo.ps_rpc' "$(printf '%s\n' "${proce
 assert_eq "psl-be-partystar" "$(allowed_services)"
 assert_eq "3" "$keep_backups"
 assert_eq "url.git@github.com:.insteadOf=https://github.com/" "$GITHUB_SSH_REWRITE"
+assert_eq "ssh -i /home/ecs-user/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes" "$DEPLOY_GIT_SSH_COMMAND"
 assert_eq $'config\ni18n\npublic\ntemplate' "$(printf '%s\n' "${asset_directories[@]}")"
 
 printf 'deploy-server tests passed\n'
