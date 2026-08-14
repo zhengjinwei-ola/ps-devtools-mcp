@@ -67,7 +67,7 @@ ps-devtools-mcp/scripts/deploy-server.sh
 - 使用临时 Git worktree，不修改服务器常驻仓库的工作副本。
 - 默认先运行 `go test ./...`，历史测试暂时阻塞时可显式传入 `--skip-tests`。
 - 使用仓库锁定的 submodule commit，不执行远程 submodule 漂移更新。
-- 编译后统一同步二进制、配置、i18n 和 public 资源。
+- 编译后统一同步二进制、配置、i18n、public 和 template 资源。
 - 已注册进程复用 004 当前 Supervisor 配置，不拆分或覆盖历史聚合配置。
 - 新增的 `go.ps_cmd.*` 进程从仓库对应配置生成 004 测试配置并注册。
 - 仓库删除的配置不会自动删除或停止 004 上的进程。

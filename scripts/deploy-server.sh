@@ -70,7 +70,7 @@ configure_service() {
 			branch="$DEFAULT_BRANCH"
 			after_copy_hook="/home/ecs-user/sh/consul.init.sh"
 			artifact_names=(http rpc cmd)
-			asset_directories=(config i18n public)
+			asset_directories=(config i18n public template)
 			;;
 		*)
 			die "service is not allowlisted: $service"

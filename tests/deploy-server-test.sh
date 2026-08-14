@@ -15,6 +15,7 @@ assert_eq() {
 }
 
 service="psl-be-partystar"
+configure_service
 assert_eq "go.ps_http" "$(map_selector http)"
 assert_eq "go.ps_rpc" "$(map_selector rpc)"
 assert_eq "go.ps_cmd.activity" "$(map_selector cmd.activity)"
@@ -36,5 +37,6 @@ resolve_processes
 assert_eq $'go.ps_cmd.activity\ngo.ps_http\ngo.ps_rpc' "$(printf '%s\n' "${processes[@]}")"
 assert_eq "psl-be-partystar" "$(allowed_services)"
 assert_eq "3" "$keep_backups"
+assert_eq $'config\ni18n\npublic\ntemplate' "$(printf '%s\n' "${asset_directories[@]}")"
 
 printf 'deploy-server tests passed\n'

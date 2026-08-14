@@ -49,7 +49,13 @@ func (r commandRunner) Run(ctx context.Context, args ...string) (string, error) 
 		output = output[len(output)-maxOutputBytes:]
 	}
 	if err != nil {
-		return string(output), fmt.Errorf("deploy command failed: %w", err)
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return "", fmt.Errorf("deploy command failed: %w", err)
+		}
+		// MCP error responses do not serialize CommandOutput. Include the bounded
+		// command output in the error so callers can diagnose failed deployments.
+		return string(output), fmt.Errorf("deploy command failed: %w\n%s", err, message)
 	}
 	return string(output), nil
 }

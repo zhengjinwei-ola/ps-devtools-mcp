@@ -2,19 +2,51 @@ package testdeploy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"reflect"
+	"strings"
 	"testing"
 )
 
 type fakeRunner struct {
-	args []string
+	args   []string
+	output string
+	err    error
 }
 
 func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
 	r.args = append([]string(nil), args...)
-	return "go.ps_http\ngo.ps_rpc\n", nil
+	if r.output == "" && r.err == nil {
+		return "go.ps_http\ngo.ps_rpc\n", nil
+	}
+	return r.output, r.err
+}
+
+func TestCommandRunnerIncludesOutputInError(t *testing.T) {
+	runner := commandRunner{path: "/bin/sh"}
+	_, err := runner.Run(context.Background(), "-c", "printf 'git fetch failed' >&2; exit 128")
+	if err == nil {
+		t.Fatal("expected command failure")
+	}
+	if !strings.Contains(err.Error(), "exit status 128") || !strings.Contains(err.Error(), "git fetch failed") {
+		t.Fatalf("error = %q, want exit status and command output", err)
+	}
+}
+
+func TestDeployReturnsCommandOutputOnFailure(t *testing.T) {
+	runner := &fakeRunner{output: "remote failure\n", err: errors.New("exit status 128")}
+	service := NewServiceWithRunner(runner, log.New(io.Discard, "", 0))
+	output, err := service.Deploy(context.Background(), DeploymentInput{
+		Service: "psl-be-partystar", Processes: []string{"http"},
+	})
+	if err == nil {
+		t.Fatal("expected deployment failure")
+	}
+	if output.Output != "remote failure\n" {
+		t.Fatalf("output = %q, want runner output", output.Output)
+	}
 }
 
 func TestDeployBuildsOnlyValidatedArguments(t *testing.T) {
