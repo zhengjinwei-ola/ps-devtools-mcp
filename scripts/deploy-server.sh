@@ -9,6 +9,7 @@ readonly SUPERVISOR_CONF_DIR="/home/ecs-user/.local/etc/supervisor/conf.d"
 readonly RELEASE_ROOT="/home/ecs-user/releases"
 readonly DEFAULT_BRANCH="dev"
 readonly DEFAULT_KEEP_BACKUPS=3
+readonly GITHUB_SSH_REWRITE='url.git@github.com:.insteadOf=https://github.com/'
 
 action="deploy"
 service=""
@@ -283,12 +284,14 @@ render_new_supervisor_config() {
 prepare_source() {
 	local revision
 
-	git -C "$repository" fetch --prune origin "$branch"
+	# The MCP service is non-interactive. Use the test host's deploy SSH key for
+	# GitHub remotes without permanently rewriting the repository configuration.
+	git -c "$GITHUB_SSH_REWRITE" -C "$repository" fetch --prune origin "$branch"
 	revision=$(git -C "$repository" rev-parse "origin/$branch^{commit}")
 	build_dir=$(mktemp -d "/tmp/deploy-server.$service.${revision:0:12}.XXXXXX")
 	rmdir "$build_dir"
 	git -C "$repository" worktree add --detach "$build_dir" "$revision"
-	git -C "$build_dir" submodule update --init --recursive
+	git -c "$GITHUB_SSH_REWRITE" -C "$build_dir" submodule update --init --recursive
 	printf '%s\n' "$revision" >"$build_dir/.deploy-revision"
 	log "source revision: $revision"
 }

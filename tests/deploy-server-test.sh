@@ -37,6 +37,7 @@ resolve_processes
 assert_eq $'go.ps_cmd.activity\ngo.ps_http\ngo.ps_rpc' "$(printf '%s\n' "${processes[@]}")"
 assert_eq "psl-be-partystar" "$(allowed_services)"
 assert_eq "3" "$keep_backups"
+assert_eq "url.git@github.com:.insteadOf=https://github.com/" "$GITHUB_SSH_REWRITE"
 assert_eq $'config\ni18n\npublic\ntemplate' "$(printf '%s\n' "${asset_directories[@]}")"
 
 printf 'deploy-server tests passed\n'
