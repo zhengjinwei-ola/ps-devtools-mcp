@@ -382,19 +382,31 @@ register_new_processes() {
 }
 
 restart_and_verify() {
-	local process status attempt
+	local process status restart_attempt health_attempt
+	local readonly max_restart_attempts=5 max_health_attempts=5
 
 	for process in "${processes[@]}"; do
-		log "restarting $process"
-		supervisorctl restart "$process"
-		for attempt in 1 2 3 4 5; do
-			sleep 2
-			status=$(supervisorctl status "$process" 2>&1 || true)
-			[[ "$status" == *" RUNNING "* ]] && break
-			log "waiting for $process ($attempt/5): $status"
+		status=""
+		for ((restart_attempt = 1; restart_attempt <= max_restart_attempts; restart_attempt++)); do
+			log "restarting $process ($restart_attempt/$max_restart_attempts)"
+			if supervisorctl restart "$process"; then
+				for ((health_attempt = 1; health_attempt <= max_health_attempts; health_attempt++)); do
+					sleep 2
+					status=$(supervisorctl status "$process" 2>&1 || true)
+					[[ "$status" == *" RUNNING "* ]] && break
+					log "waiting for $process ($health_attempt/$max_health_attempts): $status"
+				done
+				[[ "$status" == *" RUNNING "* ]] && break
+			else
+				status=$(supervisorctl status "$process" 2>&1 || true)
+				log "restart failed for $process ($restart_attempt/$max_restart_attempts): $status"
+			fi
+			if ((restart_attempt < max_restart_attempts)); then
+				sleep 2
+			fi
 		done
 		printf '%s\n' "$status"
-		[[ "$status" == *" RUNNING "* ]] || die "$process did not reach RUNNING"
+		[[ "$status" == *" RUNNING "* ]] || die "$process did not reach RUNNING after $max_restart_attempts restart attempts"
 	done
 }
 

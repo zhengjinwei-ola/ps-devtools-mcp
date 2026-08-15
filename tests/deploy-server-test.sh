@@ -41,4 +41,45 @@ assert_eq "url.git@github.com:.insteadOf=https://github.com/" "$GITHUB_SSH_REWRI
 assert_eq "ssh -i /home/ecs-user/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes" "$DEPLOY_GIT_SSH_COMMAND"
 assert_eq $'config\ni18n\npublic\ntemplate' "$(printf '%s\n' "${asset_directories[@]}")"
 
+restart_calls=0
+restart_mode="succeed_on_fifth"
+supervisorctl() {
+	case "$1" in
+		restart)
+			((restart_calls += 1))
+			[[ "$restart_mode" != "always_fail" ]] || return 1
+			((restart_calls >= 5))
+			;;
+		status)
+			if [[ "$restart_mode" != "always_fail" ]] && ((restart_calls >= 5)); then
+				printf '%s\n' "go.ps_rpc RUNNING pid 123, uptime 0:00:01"
+			else
+				printf '%s\n' "go.ps_rpc BACKOFF Exited too quickly"
+			fi
+			;;
+	esac
+}
+sleep() { :; }
+processes=(go.ps_rpc)
+restart_and_verify >/dev/null
+assert_eq "5" "$restart_calls"
+
+failure_output=$(
+	restart_mode="always_fail"
+	restart_calls=0
+	processes=(go.ps_rpc)
+	restart_and_verify 2>&1
+) && {
+	printf 'restart unexpectedly succeeded after all attempts failed\n' >&2
+	exit 1
+}
+[[ "$failure_output" == *"restarting go.ps_rpc (5/5)"* ]] || {
+	printf 'fifth restart attempt was not observed\n' >&2
+	exit 1
+}
+[[ "$failure_output" == *"did not reach RUNNING after 5 restart attempts"* ]] || {
+	printf 'retry exhaustion error was not observed\n' >&2
+	exit 1
+}
+
 printf 'deploy-server tests passed\n'
