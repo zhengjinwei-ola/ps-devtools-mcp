@@ -480,6 +480,7 @@ main() {
 	flock -n 9 || die "another deployment is running for $service"
 	prepare_source
 	build_source
+	log "phase=deploying"
 	prepare_backup
 	install_release
 	register_new_processes

@@ -1,6 +1,7 @@
 package testdeploy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,12 +9,14 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	defaultScriptPath = "/home/ecs-user/sh/deploy-server.sh"
 	maxOutputBytes    = 64 << 10
+	deployPhaseMarker = "[deploy-server] phase=deploying"
 )
 
 var selectorPattern = regexp.MustCompile(`^(?:all|http|rpc|cmd\.[A-Za-z0-9_-]+|go\.ps_(?:http|rpc|cmd\.[A-Za-z0-9_-]+))$`)
@@ -39,16 +42,18 @@ type CommandOutput struct {
 }
 
 type Runner interface {
-	Run(context.Context, ...string) (string, error)
+	Run(context.Context, func(), ...string) (string, error)
 }
 
 type DeploymentStatus string
 
 const (
-	DeploymentStarted   DeploymentStatus = "started"
-	DeploymentSucceeded DeploymentStatus = "succeeded"
-	DeploymentFailed    DeploymentStatus = "failed"
-	notificationTimeout                  = 5 * time.Second
+	DeploymentCompiling     DeploymentStatus = "compiling"
+	DeploymentDeploying     DeploymentStatus = "deploying"
+	DeploymentSucceeded     DeploymentStatus = "succeeded"
+	DeploymentCompileFailed DeploymentStatus = "compile_failed"
+	DeploymentFailed        DeploymentStatus = "failed"
+	notificationTimeout                      = 5 * time.Second
 )
 
 type DeploymentNotification struct {
@@ -65,8 +70,13 @@ type DeploymentNotifier interface {
 
 type commandRunner struct{ path string }
 
-func (r commandRunner) Run(ctx context.Context, args ...string) (string, error) {
-	output, err := exec.CommandContext(ctx, r.path, args...).CombinedOutput()
+func (r commandRunner) Run(ctx context.Context, onDeploying func(), args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, r.path, args...)
+	capture := &commandOutputCapture{onDeploying: onDeploying}
+	cmd.Stdout = capture
+	cmd.Stderr = capture
+	err := cmd.Run()
+	output := capture.Bytes()
 	if len(output) > maxOutputBytes {
 		output = output[len(output)-maxOutputBytes:]
 	}
@@ -80,6 +90,29 @@ func (r commandRunner) Run(ctx context.Context, args ...string) (string, error) 
 		return string(output), fmt.Errorf("deploy command failed: %w\n%s", err, message)
 	}
 	return string(output), nil
+}
+
+type commandOutputCapture struct {
+	mu          sync.Mutex
+	buffer      bytes.Buffer
+	onDeploying func()
+	deployOnce  sync.Once
+}
+
+func (c *commandOutputCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n, err := c.buffer.Write(p)
+	if c.onDeploying != nil && bytes.Contains(c.buffer.Bytes(), []byte(deployPhaseMarker)) {
+		c.deployOnce.Do(c.onDeploying)
+	}
+	return n, err
+}
+
+func (c *commandOutputCapture) Bytes() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]byte(nil), c.buffer.Bytes()...)
 }
 
 type Service struct {
@@ -105,7 +138,7 @@ func NewServiceWithRunnerAndNotifier(runner Runner, notifier DeploymentNotifier,
 }
 
 func (s *Service) ListServices(ctx context.Context, _ ListServicesInput) (ListServicesOutput, error) {
-	output, err := s.runner.Run(ctx, "list")
+	output, err := s.runner.Run(ctx, nil, "list")
 	if err != nil {
 		return ListServicesOutput{}, err
 	}
@@ -116,7 +149,7 @@ func (s *Service) ListProcesses(ctx context.Context, input ProcessesInput) (Proc
 	if err := validateService(input.Service); err != nil {
 		return ProcessesOutput{}, err
 	}
-	output, err := s.runner.Run(ctx, "processes", input.Service)
+	output, err := s.runner.Run(ctx, nil, "processes", input.Service)
 	if err != nil {
 		return ProcessesOutput{}, err
 	}
@@ -132,11 +165,18 @@ func (s *Service) Deploy(ctx context.Context, input DeploymentInput) (CommandOut
 		return CommandOutput{}, err
 	}
 	startedAt := time.Now()
-	s.notify(DeploymentNotification{Status: DeploymentStarted, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests})
-	output, err := s.runDeploymentCommand(ctx, "deploy", input)
+	s.notify(DeploymentNotification{Status: DeploymentCompiling, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests})
+	deploying := false
+	output, err := s.runDeploymentCommand(ctx, "deploy", input, func() {
+		deploying = true
+		s.notify(DeploymentNotification{Status: DeploymentDeploying, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests})
+	})
 	status := DeploymentSucceeded
 	if err != nil {
-		status = DeploymentFailed
+		status = DeploymentCompileFailed
+		if deploying {
+			status = DeploymentFailed
+		}
 	}
 	s.notify(DeploymentNotification{Status: status, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests, Duration: time.Since(startedAt)})
 	return output, err
@@ -154,7 +194,7 @@ func (s *Service) notify(event DeploymentNotification) {
 	}
 }
 
-func (s *Service) runDeploymentCommand(ctx context.Context, action string, input DeploymentInput) (CommandOutput, error) {
+func (s *Service) runDeploymentCommand(ctx context.Context, action string, input DeploymentInput, onDeploying ...func()) (CommandOutput, error) {
 	if err := validateDeployment(input); err != nil {
 		return CommandOutput{}, err
 	}
@@ -167,7 +207,11 @@ func (s *Service) runDeploymentCommand(ctx context.Context, action string, input
 		args = append(args, "--keep-backups", fmt.Sprint(input.KeepBackups))
 	}
 	s.logger.Printf("tool=%s_test_deployment service=%q processes=%q skip_tests=%t keep_backups=%d", action, input.Service, input.Processes, input.SkipTests, input.KeepBackups)
-	output, err := s.runner.Run(ctx, args...)
+	var phaseCallback func()
+	if len(onDeploying) > 0 {
+		phaseCallback = onDeploying[0]
+	}
+	output, err := s.runner.Run(ctx, phaseCallback, args...)
 	return CommandOutput{Output: output}, err
 }
 

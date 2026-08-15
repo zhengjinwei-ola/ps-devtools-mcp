@@ -33,7 +33,7 @@ func TestWebhookSendsSlackPayload(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Test deployment succeeded", "psl-be-partystar", "http"} {
+	for _, want := range []string{"【部署成功】", "新版本已上线", "psl-be-partystar", "http"} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("payload = %q, want %q", gotBody, want)
 		}

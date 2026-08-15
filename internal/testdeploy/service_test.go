@@ -11,9 +11,10 @@ import (
 )
 
 type fakeRunner struct {
-	args   []string
-	output string
-	err    error
+	args             []string
+	output           string
+	err              error
+	reachDeployPhase bool
 }
 
 type fakeNotifier struct {
@@ -26,8 +27,11 @@ func (n *fakeNotifier) Notify(_ context.Context, event DeploymentNotification) e
 	return n.err
 }
 
-func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
+func (r *fakeRunner) Run(_ context.Context, onDeploying func(), args ...string) (string, error) {
 	r.args = append([]string(nil), args...)
+	if r.reachDeployPhase && onDeploying != nil {
+		onDeploying()
+	}
 	if r.output == "" && r.err == nil {
 		return "go.ps_http\ngo.ps_rpc\n", nil
 	}
@@ -36,12 +40,24 @@ func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
 
 func TestCommandRunnerIncludesOutputInError(t *testing.T) {
 	runner := commandRunner{path: "/bin/sh"}
-	_, err := runner.Run(context.Background(), "-c", "printf 'git fetch failed' >&2; exit 128")
+	_, err := runner.Run(context.Background(), nil, "-c", "printf 'git fetch failed' >&2; exit 128")
 	if err == nil {
 		t.Fatal("expected command failure")
 	}
 	if !strings.Contains(err.Error(), "exit status 128") || !strings.Contains(err.Error(), "git fetch failed") {
 		t.Fatalf("error = %q, want exit status and command output", err)
+	}
+}
+
+func TestCommandRunnerReportsDeployPhaseMarker(t *testing.T) {
+	reached := false
+	runner := commandRunner{path: "/bin/sh"}
+	_, err := runner.Run(context.Background(), func() { reached = true }, "-c", "printf '[deploy-server] phase=deploying\\n'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reached {
+		t.Fatal("expected deployment phase callback")
 	}
 }
 
@@ -59,8 +75,8 @@ func TestDeployReturnsCommandOutputOnFailure(t *testing.T) {
 	}
 }
 
-func TestDeployNotifiesStartedAndSucceeded(t *testing.T) {
-	runner := &fakeRunner{output: "deployed\n"}
+func TestDeployNotifiesCompilingDeployingAndSucceeded(t *testing.T) {
+	runner := &fakeRunner{output: "deployed\n", reachDeployPhase: true}
 	notifier := &fakeNotifier{}
 	service := NewServiceWithRunnerAndNotifier(runner, notifier, log.New(io.Discard, "", 0))
 	_, err := service.Deploy(context.Background(), DeploymentInput{
@@ -69,11 +85,11 @@ func TestDeployNotifiesStartedAndSucceeded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(notifier.events) != 2 || notifier.events[0].Status != DeploymentStarted || notifier.events[1].Status != DeploymentSucceeded {
+	if len(notifier.events) != 3 || notifier.events[0].Status != DeploymentCompiling || notifier.events[1].Status != DeploymentDeploying || notifier.events[2].Status != DeploymentSucceeded {
 		t.Fatalf("events = %#v", notifier.events)
 	}
-	if notifier.events[1].Duration < 0 {
-		t.Fatalf("duration = %s", notifier.events[1].Duration)
+	if notifier.events[2].Duration < 0 {
+		t.Fatalf("duration = %s", notifier.events[2].Duration)
 	}
 }
 
@@ -88,7 +104,20 @@ func TestDeployFailureNotificationDoesNotReplaceDeployError(t *testing.T) {
 	if !errors.Is(err, deployErr) {
 		t.Fatalf("error = %v, want deployment error", err)
 	}
-	if len(notifier.events) != 2 || notifier.events[1].Status != DeploymentFailed {
+	if len(notifier.events) != 2 || notifier.events[1].Status != DeploymentCompileFailed {
+		t.Fatalf("events = %#v", notifier.events)
+	}
+}
+
+func TestDeployNotifiesDeploymentFailureAfterDeployPhase(t *testing.T) {
+	runner := &fakeRunner{output: "restart failed\n", err: errors.New("exit status 1"), reachDeployPhase: true}
+	notifier := &fakeNotifier{}
+	service := NewServiceWithRunnerAndNotifier(runner, notifier, log.New(io.Discard, "", 0))
+	_, err := service.Deploy(context.Background(), DeploymentInput{Service: "psl-be-partystar", Processes: []string{"http"}})
+	if err == nil {
+		t.Fatal("expected deployment failure")
+	}
+	if len(notifier.events) != 3 || notifier.events[2].Status != DeploymentFailed {
 		t.Fatalf("events = %#v", notifier.events)
 	}
 }

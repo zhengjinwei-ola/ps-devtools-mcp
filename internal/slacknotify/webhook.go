@@ -61,17 +61,21 @@ func (w *Webhook) Notify(ctx context.Context, event testdeploy.DeploymentNotific
 }
 
 func formatMessage(event testdeploy.DeploymentNotification) string {
-	status := ":rocket: Test deployment started"
+	status := "🛠️ *【开始编译】旧服务构建任务已启动*"
 	switch event.Status {
+	case testdeploy.DeploymentDeploying:
+		status = "🚀 *【开始部署】编译完成，正在备份旧版本、替换新版本并重启服务*"
 	case testdeploy.DeploymentSucceeded:
-		status = ":white_check_mark: Test deployment succeeded"
+		status = "✅ *【部署成功】新版本已上线，服务运行正常*"
+	case testdeploy.DeploymentCompileFailed:
+		status = "❌ *【编译失败】构建未通过，旧服务未受影响*"
 	case testdeploy.DeploymentFailed:
-		status = ":x: Test deployment failed"
+		status = "🚨 *【部署失败】新版本上线未完成，旧版本保护机制已生效*"
 	}
-	message := fmt.Sprintf("%s\n*Service:* `%s`\n*Processes:* `%s`\n*Skip tests:* `%t`",
-		status, event.Service, strings.Join(event.Processes, ", "), event.SkipTests)
-	if event.Status != testdeploy.DeploymentStarted {
-		message += fmt.Sprintf("\n*Duration:* `%s`", event.Duration.Round(100*time.Millisecond))
+	message := fmt.Sprintf("%s\n• 服务：`%s`\n• 进程：`%s`",
+		status, event.Service, strings.Join(event.Processes, ", "))
+	if event.Status == testdeploy.DeploymentSucceeded || event.Status == testdeploy.DeploymentCompileFailed || event.Status == testdeploy.DeploymentFailed {
+		message += fmt.Sprintf("\n• 耗时：`%s`", event.Duration.Round(100*time.Millisecond))
 	}
 	return message
 }
