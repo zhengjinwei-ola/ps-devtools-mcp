@@ -23,13 +23,17 @@ type Webhook struct {
 
 func NewWebhook(rawURL string, client *http.Client) (*Webhook, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "hooks.slack.com" || !strings.HasPrefix(parsed.Path, "/services/") {
-		return nil, fmt.Errorf("Slack deployment webhook must be an https://hooks.slack.com/services/... URL")
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "hooks.slack.com" || !isSupportedWebhookPath(parsed.Path) {
+		return nil, fmt.Errorf("Slack deployment webhook must be an https://hooks.slack.com/services/... or https://hooks.slack.com/triggers/... URL")
 	}
 	if client == nil {
 		return nil, fmt.Errorf("Slack deployment webhook HTTP client is required")
 	}
 	return &Webhook{url: parsed.String(), client: client}, nil
+}
+
+func isSupportedWebhookPath(path string) bool {
+	return strings.HasPrefix(path, "/services/") || strings.HasPrefix(path, "/triggers/")
 }
 
 func (w *Webhook) Notify(ctx context.Context, event testdeploy.DeploymentNotification) error {

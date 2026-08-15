@@ -40,6 +40,12 @@ func TestWebhookSendsSlackPayload(t *testing.T) {
 	}
 }
 
+func TestNewWebhookAcceptsSlackWorkflowTrigger(t *testing.T) {
+	if _, err := NewWebhook("https://hooks.slack.com/triggers/T/B/S", http.DefaultClient); err != nil {
+		t.Fatalf("expected Slack Workflow trigger URL to be accepted: %v", err)
+	}
+}
+
 func TestNewWebhookRejectsNonSlackURL(t *testing.T) {
 	if _, err := NewWebhook("https://example.com/hook", http.DefaultClient); err == nil {
 		t.Fatal("expected non-Slack webhook URL error")

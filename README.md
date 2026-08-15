@@ -53,10 +53,10 @@ PS_MCP_TESTBOT_CONFIG=/home/ecs-user/webroot/ps-devtools-mcp/config/testbot.test
 PS_TESTBOT_AREA=<mobile-area>
 PS_TESTBOT_MOBILE=<secret>
 PS_TESTBOT_PASSWORD=<secret>
-PS_MCP_SLACK_DEPLOY_WEBHOOK_URL=https://hooks.slack.com/services/<secret>
+PS_MCP_SLACK_DEPLOY_WEBHOOK_URL=https://hooks.slack.com/triggers/<secret>
 ```
 
-配置 Slack Incoming Webhook 后，`deploy_test_service` 会向 Webhook 绑定的固定频道发送开始及成功/失败通知。Webhook URL 属于密钥，只能放在权限受限的部署环境文件中；通知失败仅记录服务日志，不改变部署结果。
+配置 Slack Incoming Webhook（`/services/`）或 Workflow Trigger（`/triggers/`）后，`deploy_test_service` 会向 Webhook 绑定的固定频道发送开始及成功/失败通知。Webhook URL 属于密钥，只能放在权限受限的部署环境文件中；通知失败仅记录服务日志，不改变部署结果。
 
 HTTP 模式还需配置：
 
