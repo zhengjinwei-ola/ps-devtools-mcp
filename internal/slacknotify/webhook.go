@@ -71,10 +71,12 @@ func formatMessage(event testdeploy.DeploymentNotification) string {
 		status = "❌ *【编译失败】构建未通过，旧服务未受影响*"
 	case testdeploy.DeploymentFailed:
 		status = "🚨 *【部署失败】新版本上线未完成，旧版本保护机制已生效*"
+	case testdeploy.DeploymentCanceled:
+		status = "⏹️ *【部署取消】任务已终止，旧版本保护机制已生效*"
 	}
 	message := fmt.Sprintf("%s\n• 服务：`%s`\n• 进程：`%s`",
 		status, event.Service, strings.Join(event.Processes, ", "))
-	if event.Status == testdeploy.DeploymentSucceeded || event.Status == testdeploy.DeploymentCompileFailed || event.Status == testdeploy.DeploymentFailed {
+	if event.Status == testdeploy.DeploymentSucceeded || event.Status == testdeploy.DeploymentCompileFailed || event.Status == testdeploy.DeploymentFailed || event.Status == testdeploy.DeploymentCanceled {
 		message += fmt.Sprintf("\n• 耗时：`%s`", event.Duration.Round(100*time.Millisecond))
 	}
 	return message

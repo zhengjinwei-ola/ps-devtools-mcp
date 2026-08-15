@@ -8,8 +8,10 @@ import (
 	"log"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -41,6 +43,26 @@ type CommandOutput struct {
 	Output string `json:"output"`
 }
 
+type ProcessActionInput struct {
+	Service   string   `json:"service" jsonschema:"Allowlisted test service name."`
+	Processes []string `json:"processes" jsonschema:"One or more allowlisted process selectors."`
+}
+
+type ProcessStatus struct {
+	Process string `json:"process"`
+	State   string `json:"state"`
+	PID     int    `json:"pid,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type ProcessStatusOutput struct {
+	Processes []ProcessStatus `json:"processes"`
+}
+
+type RestartProcessesOutput struct {
+	Processes []ProcessDeploymentResult `json:"processes"`
+}
+
 type Runner interface {
 	Run(context.Context, func(), ...string) (string, error)
 }
@@ -53,6 +75,7 @@ const (
 	DeploymentSucceeded     DeploymentStatus = "succeeded"
 	DeploymentCompileFailed DeploymentStatus = "compile_failed"
 	DeploymentFailed        DeploymentStatus = "failed"
+	DeploymentCanceled      DeploymentStatus = "canceled"
 	notificationTimeout                      = 5 * time.Second
 )
 
@@ -64,6 +87,16 @@ type DeploymentNotification struct {
 	Duration  time.Duration
 }
 
+type NotificationDelivery struct {
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+type DeploymentEvent struct {
+	Notification DeploymentNotification
+	Delivery     NotificationDelivery
+}
+
 type DeploymentNotifier interface {
 	Notify(context.Context, DeploymentNotification) error
 }
@@ -72,6 +105,17 @@ type commandRunner struct{ path string }
 
 func (r commandRunner) Run(ctx context.Context, onDeploying func(), args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, r.path, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	cmd.WaitDelay = 5 * time.Second
 	capture := &commandOutputCapture{onDeploying: onDeploying}
 	cmd.Stdout = capture
 	cmd.Stderr = capture
@@ -101,9 +145,10 @@ type commandOutputCapture struct {
 
 func (c *commandOutputCapture) Write(p []byte) (int, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	n, err := c.buffer.Write(p)
-	if c.onDeploying != nil && bytes.Contains(c.buffer.Bytes(), []byte(deployPhaseMarker)) {
+	deploying := c.onDeploying != nil && bytes.Contains(c.buffer.Bytes(), []byte(deployPhaseMarker))
+	c.mu.Unlock()
+	if deploying {
 		c.deployOnce.Do(c.onDeploying)
 	}
 	return n, err
@@ -160,38 +205,73 @@ func (s *Service) Plan(ctx context.Context, input DeploymentInput) (CommandOutpu
 	return s.runDeploymentCommand(ctx, "plan", input)
 }
 
+func (s *Service) Status(ctx context.Context, input ProcessActionInput) (ProcessStatusOutput, error) {
+	if err := validateProcessAction(input); err != nil {
+		return ProcessStatusOutput{}, err
+	}
+	output, err := s.runner.Run(ctx, nil, append([]string{"status", input.Service}, input.Processes...)...)
+	if err != nil {
+		return ProcessStatusOutput{}, err
+	}
+	return ProcessStatusOutput{Processes: parseProcessStatuses(output)}, nil
+}
+
+func (s *Service) Restart(ctx context.Context, input ProcessActionInput) (RestartProcessesOutput, error) {
+	if err := validateProcessAction(input); err != nil {
+		return RestartProcessesOutput{}, err
+	}
+	output, err := s.runner.Run(ctx, nil, append([]string{"restart", input.Service}, input.Processes...)...)
+	_, results := parseDeploymentOutput(output)
+	return RestartProcessesOutput{Processes: results}, err
+}
+
 func (s *Service) Deploy(ctx context.Context, input DeploymentInput) (CommandOutput, error) {
+	return s.deploy(ctx, input, nil)
+}
+
+func (s *Service) deploy(ctx context.Context, input DeploymentInput, observe func(DeploymentEvent)) (CommandOutput, error) {
 	if err := validateDeployment(input); err != nil {
 		return CommandOutput{}, err
 	}
 	startedAt := time.Now()
-	s.notify(DeploymentNotification{Status: DeploymentCompiling, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests})
+	s.notifyAndObserve(DeploymentNotification{Status: DeploymentCompiling, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests}, observe)
 	deploying := false
 	output, err := s.runDeploymentCommand(ctx, "deploy", input, func() {
 		deploying = true
-		s.notify(DeploymentNotification{Status: DeploymentDeploying, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests})
+		s.notifyAndObserve(DeploymentNotification{Status: DeploymentDeploying, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests}, observe)
 	})
 	status := DeploymentSucceeded
-	if err != nil {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		status = DeploymentCanceled
+	} else if err != nil {
 		status = DeploymentCompileFailed
 		if deploying {
 			status = DeploymentFailed
 		}
 	}
-	s.notify(DeploymentNotification{Status: status, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests, Duration: time.Since(startedAt)})
+	s.notifyAndObserve(DeploymentNotification{Status: status, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests, Duration: time.Since(startedAt)}, observe)
 	return output, err
 }
 
-func (s *Service) notify(event DeploymentNotification) {
+func (s *Service) notifyAndObserve(event DeploymentNotification, observe func(DeploymentEvent)) {
+	delivery := s.notify(event)
+	if observe != nil {
+		observe(DeploymentEvent{Notification: event, Delivery: delivery})
+	}
+}
+
+func (s *Service) notify(event DeploymentNotification) NotificationDelivery {
 	if s.notifier == nil {
-		return
+		return NotificationDelivery{Status: "disabled"}
 	}
 	// Notification is best-effort and must never change the deployment result.
 	ctx, cancel := context.WithTimeout(context.Background(), notificationTimeout)
 	defer cancel()
 	if err := s.notifier.Notify(ctx, event); err != nil {
 		s.logger.Printf("slack_deploy_notification status=%q service=%q error=%q", event.Status, event.Service, err)
+		return NotificationDelivery{Status: "failed", Error: err.Error()}
 	}
+	return NotificationDelivery{Status: "sent"}
 }
 
 func (s *Service) runDeploymentCommand(ctx context.Context, action string, input DeploymentInput, onDeploying ...func()) (CommandOutput, error) {
@@ -238,6 +318,29 @@ func validateDeployment(input DeploymentInput) error {
 		return errors.New("keep_backups must be between 0 and 20")
 	}
 	return nil
+}
+
+func validateProcessAction(input ProcessActionInput) error {
+	return validateDeployment(DeploymentInput{Service: input.Service, Processes: input.Processes})
+}
+
+func parseProcessStatuses(output string) []ProcessStatus {
+	var statuses []ProcessStatus
+	for _, line := range nonEmptyLines(output) {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !selectorPattern.MatchString(fields[0]) {
+			continue
+		}
+		status := ProcessStatus{Process: fields[0], State: fields[1]}
+		if status.State == "RUNNING" && len(fields) >= 4 && fields[2] == "pid" {
+			status.PID, _ = strconv.Atoi(strings.TrimSuffix(fields[3], ","))
+		}
+		if len(fields) > 2 {
+			status.Detail = strings.Join(fields[2:], " ")
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses
 }
 
 func nonEmptyLines(output string) []string {

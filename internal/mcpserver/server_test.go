@@ -19,6 +19,7 @@ type stubRedisService struct {
 }
 
 type stubDeployService struct{}
+type stubDeploymentJobService struct{}
 
 func (stubDeployService) ListServices(context.Context, testdeploy.ListServicesInput) (testdeploy.ListServicesOutput, error) {
 	return testdeploy.ListServicesOutput{}, nil
@@ -31,6 +32,27 @@ func (stubDeployService) Plan(context.Context, testdeploy.DeploymentInput) (test
 }
 func (stubDeployService) Deploy(context.Context, testdeploy.DeploymentInput) (testdeploy.CommandOutput, error) {
 	return testdeploy.CommandOutput{}, nil
+}
+func (stubDeployService) Status(context.Context, testdeploy.ProcessActionInput) (testdeploy.ProcessStatusOutput, error) {
+	return testdeploy.ProcessStatusOutput{}, nil
+}
+func (stubDeployService) Restart(context.Context, testdeploy.ProcessActionInput) (testdeploy.RestartProcessesOutput, error) {
+	return testdeploy.RestartProcessesOutput{}, nil
+}
+func (stubDeploymentJobService) Start(context.Context, testdeploy.DeploymentInput) (testdeploy.StartDeploymentOutput, error) {
+	return testdeploy.StartDeploymentOutput{}, nil
+}
+func (stubDeploymentJobService) Get(context.Context, testdeploy.DeploymentIDInput) (testdeploy.DeploymentStatusOutput, error) {
+	return testdeploy.DeploymentStatusOutput{}, nil
+}
+func (stubDeploymentJobService) Logs(context.Context, testdeploy.DeploymentIDInput) (testdeploy.DeploymentLogsOutput, error) {
+	return testdeploy.DeploymentLogsOutput{}, nil
+}
+func (stubDeploymentJobService) Recent(context.Context, testdeploy.RecentDeploymentsInput) (testdeploy.RecentDeploymentsOutput, error) {
+	return testdeploy.RecentDeploymentsOutput{}, nil
+}
+func (stubDeploymentJobService) Cancel(context.Context, testdeploy.DeploymentIDInput) (testdeploy.CancelDeploymentOutput, error) {
+	return testdeploy.CancelDeploymentOutput{}, nil
 }
 
 func (s *stubRedisService) Query(_ context.Context, _ testredis.QueryInput) (testredis.QueryOutput, error) {
@@ -47,7 +69,7 @@ func TestQueryTestDBToolCanBeCalledOverMCP(t *testing.T) {
 	ctx := context.Background()
 	service := &stubService{}
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := New(Services{DB: service, Redis: &stubRedisService{}, TestDeploy: stubDeployService{}}).Connect(ctx, serverTransport, nil)
+	serverSession, err := New(Services{DB: service, Redis: &stubRedisService{}, TestDeploy: stubDeployService{}, TestDeployJobs: stubDeploymentJobService{}}).Connect(ctx, serverTransport, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +103,10 @@ func TestQueryTestDBToolCanBeCalledOverMCP(t *testing.T) {
 		"list_testbot_endpoints": false, "call_testbot_api": false,
 		"list_test_deploy_services": false, "list_test_deploy_processes": false,
 		"plan_test_deployment": false, "deploy_test_service": false,
+		"start_test_deployment": false, "get_test_deployment_status": false,
+		"get_test_deployment_logs": false, "get_recent_deployments": false,
+		"cancel_test_deployment": false, "get_test_process_status": false,
+		"restart_test_process": false,
 	}
 	for tool, toolErr := range clientSession.Tools(ctx, nil) {
 		if toolErr != nil {
@@ -101,7 +127,7 @@ func TestQueryTestRedisToolCanBeCalledOverMCP(t *testing.T) {
 	ctx := context.Background()
 	redisService := &stubRedisService{}
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := New(Services{DB: &stubService{}, Redis: redisService, TestDeploy: stubDeployService{}}).Connect(ctx, serverTransport, nil)
+	serverSession, err := New(Services{DB: &stubService{}, Redis: redisService, TestDeploy: stubDeployService{}, TestDeployJobs: stubDeploymentJobService{}}).Connect(ctx, serverTransport, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

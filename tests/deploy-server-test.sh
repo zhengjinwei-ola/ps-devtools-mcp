@@ -41,6 +41,16 @@ assert_eq "url.git@github.com:.insteadOf=https://github.com/" "$GITHUB_SSH_REWRI
 assert_eq "ssh -i /home/ecs-user/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes" "$DEPLOY_GIT_SSH_COMMAND"
 assert_eq $'config\ni18n\npublic\ntemplate' "$(printf '%s\n' "${asset_directories[@]}")"
 
+(
+	action=""
+	service=""
+	selectors=()
+	parse_args status psl-be-partystar rpc
+	assert_eq "status" "$action"
+	assert_eq "psl-be-partystar" "$service"
+	assert_eq "rpc" "${selectors[0]}"
+)
+
 restart_calls=0
 restart_mode="succeed_on_fifth"
 supervisorctl() {

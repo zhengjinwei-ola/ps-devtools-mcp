@@ -16,7 +16,7 @@ import (
 
 const (
 	Name    = "ps-devtools"
-	Version = "v0.2.0"
+	Version = "v0.3.0"
 )
 
 type queryService interface {
@@ -57,6 +57,16 @@ type testDeployService interface {
 	ListProcesses(context.Context, testdeploy.ProcessesInput) (testdeploy.ProcessesOutput, error)
 	Plan(context.Context, testdeploy.DeploymentInput) (testdeploy.CommandOutput, error)
 	Deploy(context.Context, testdeploy.DeploymentInput) (testdeploy.CommandOutput, error)
+	Status(context.Context, testdeploy.ProcessActionInput) (testdeploy.ProcessStatusOutput, error)
+	Restart(context.Context, testdeploy.ProcessActionInput) (testdeploy.RestartProcessesOutput, error)
+}
+
+type testDeploymentJobService interface {
+	Start(context.Context, testdeploy.DeploymentInput) (testdeploy.StartDeploymentOutput, error)
+	Get(context.Context, testdeploy.DeploymentIDInput) (testdeploy.DeploymentStatusOutput, error)
+	Logs(context.Context, testdeploy.DeploymentIDInput) (testdeploy.DeploymentLogsOutput, error)
+	Recent(context.Context, testdeploy.RecentDeploymentsInput) (testdeploy.RecentDeploymentsOutput, error)
+	Cancel(context.Context, testdeploy.DeploymentIDInput) (testdeploy.CancelDeploymentOutput, error)
 }
 
 type Services struct {
@@ -68,6 +78,7 @@ type Services struct {
 	TestBot        testBotService
 	TestLogs       testLogService
 	TestDeploy     testDeployService
+	TestDeployJobs testDeploymentJobService
 }
 
 func New(services Services) *mcp.Server {
@@ -78,6 +89,48 @@ func New(services Services) *mcp.Server {
 			"or config (engine 3) database. SELECT and WITH queries must include LIMIT.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdb.QueryInput) (*mcp.CallToolResult, testdb.QueryOutput, error) {
 		output, err := services.DB.Query(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "start_test_deployment", Description: "Start an asynchronous allowlisted deployment on PSL 004 and return a deployment ID immediately.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.DeploymentInput) (*mcp.CallToolResult, testdeploy.StartDeploymentOutput, error) {
+		output, err := services.TestDeployJobs.Start(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "get_test_deployment_status", Description: "Get structured stage, revision, process PID, restart attempts, duration, error, and Slack delivery status for an asynchronous deployment.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.DeploymentIDInput) (*mcp.CallToolResult, testdeploy.DeploymentStatusOutput, error) {
+		output, err := services.TestDeployJobs.Get(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "get_test_deployment_logs", Description: "Get bounded stage summaries and key errors for an asynchronous deployment without verbose build output.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.DeploymentIDInput) (*mcp.CallToolResult, testdeploy.DeploymentLogsOutput, error) {
+		output, err := services.TestDeployJobs.Logs(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "get_recent_deployments", Description: "List recent in-memory PSL 004 deployment summaries, newest first.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.RecentDeploymentsInput) (*mcp.CallToolResult, testdeploy.RecentDeploymentsOutput, error) {
+		output, err := services.TestDeployJobs.Recent(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "cancel_test_deployment", Description: "Cancel one running asynchronous PSL 004 deployment and terminate its deployment process group.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.DeploymentIDInput) (*mcp.CallToolResult, testdeploy.CancelDeploymentOutput, error) {
+		output, err := services.TestDeployJobs.Cancel(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "get_test_process_status", Description: "Get structured Supervisor state and PID for allowlisted PSL 004 processes.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.ProcessActionInput) (*mcp.CallToolResult, testdeploy.ProcessStatusOutput, error) {
+		output, err := services.TestDeploy.Status(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "restart_test_process", Description: "Restart allowlisted PSL 004 Supervisor processes with bounded retry and health verification, without rebuilding.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdeploy.ProcessActionInput) (*mcp.CallToolResult, testdeploy.RestartProcessesOutput, error) {
+		output, err := services.TestDeploy.Restart(ctx, input)
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{

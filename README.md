@@ -7,10 +7,13 @@
 - `list_test_log_sources` / `search_test_logs` / `trace_test_logs`：通过同机日志 MCP 查询白名单日志并脱敏；
 - `get_test_user_snapshot`：读取固定的非敏感用户、VIP 与背包诊断字段。
 - `list_test_deploy_services` / `list_test_deploy_processes` / `plan_test_deployment`：查看白名单部署目标；
-- `deploy_test_service`：构建并部署白名单测试服务的指定 Supervisor 进程。
+- `deploy_test_service`：兼容保留的同步部署入口；
+- `start_test_deployment` / `get_test_deployment_status` / `get_test_deployment_logs` / `cancel_test_deployment`：异步启动、查询或取消部署任务；
+- `get_recent_deployments`：查看当前 MCP 进程内最近 50 条结构化部署记录；
+- `get_test_process_status` / `restart_test_process`：查询或重启白名单 Supervisor 进程。
 - `list_testbot_endpoints` / `call_testbot_api`：自动登录配置的测试用户并调用预登记用户接口。
 
-服务不提供 Shell、任意文件路径或任意 URL。唯一写操作 `deploy_test_service` 只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
+服务不提供 Shell、任意文件路径或任意 URL。部署与重启工具只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。异步任务脱离单次 HTTP 请求运行，同一服务只允许一个任务，历史仅保存在当前 MCP 进程内。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
 
 TestBot 的手机号和密码仅从环境变量读取，业务 Token 只缓存在进程内存。接口必须在
 `config/testbot.test.json` 中预登记；副作用接口还要求 `confirm_side_effect=true`。
@@ -56,7 +59,7 @@ PS_TESTBOT_PASSWORD=<secret>
 PS_MCP_SLACK_DEPLOY_WEBHOOK_URL=https://hooks.slack.com/triggers/<secret>
 ```
 
-配置 Slack Incoming Webhook（`/services/`）或 Workflow Trigger（`/triggers/`）后，`deploy_test_service` 会向 Webhook 绑定的固定频道发送开始及成功/失败通知。Webhook URL 属于密钥，只能放在权限受限的部署环境文件中；通知失败仅记录服务日志，不改变部署结果。
+配置 Slack Incoming Webhook（`/services/`）或 Workflow Trigger（`/triggers/`）后，同步和异步部署都会发送编译、部署及最终结果通知。异步状态会分别记录各阶段 Slack 投递的 `sent`、`failed` 或 `disabled` 状态。Webhook URL 属于密钥，只能放在权限受限的部署环境文件中；通知失败不改变部署结果。
 
 HTTP 模式还需配置：
 

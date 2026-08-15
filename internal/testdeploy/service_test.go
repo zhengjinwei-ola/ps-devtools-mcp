@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeRunner struct {
@@ -58,6 +59,20 @@ func TestCommandRunnerReportsDeployPhaseMarker(t *testing.T) {
 	}
 	if !reached {
 		t.Fatal("expected deployment phase callback")
+	}
+}
+
+func TestCommandRunnerCancelsDeploymentProcessGroup(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	startedAt := time.Now()
+	runner := commandRunner{path: "/bin/sh"}
+	_, err := runner.Run(ctx, nil, "-c", "sleep 30")
+	if err == nil {
+		t.Fatal("expected canceled command error")
+	}
+	if elapsed := time.Since(startedAt); elapsed > 3*time.Second {
+		t.Fatalf("canceled command took %s", elapsed)
 	}
 }
 
@@ -134,6 +149,25 @@ func TestDeployBuildsOnlyValidatedArguments(t *testing.T) {
 	want := []string{"deploy", "psl-be-partystar", "http", "cmd.activity", "--skip-tests", "--keep-backups", "5"}
 	if !reflect.DeepEqual(runner.args, want) {
 		t.Fatalf("args = %#v, want %#v", runner.args, want)
+	}
+}
+
+func TestStatusAndRestartReturnStructuredProcesses(t *testing.T) {
+	statusRunner := &fakeRunner{output: "go.ps_rpc RUNNING pid 123, uptime 0:00:01\n"}
+	service := NewServiceWithRunner(statusRunner, log.New(io.Discard, "", 0))
+	status, err := service.Status(context.Background(), ProcessActionInput{Service: "psl-be-partystar", Processes: []string{"rpc"}})
+	if err != nil || len(status.Processes) != 1 || status.Processes[0].PID != 123 {
+		t.Fatalf("status = %#v, error = %v", status, err)
+	}
+	if want := []string{"status", "psl-be-partystar", "rpc"}; !reflect.DeepEqual(statusRunner.args, want) {
+		t.Fatalf("args = %#v, want %#v", statusRunner.args, want)
+	}
+
+	restartRunner := &fakeRunner{output: "[deploy-server] restarting go.ps_rpc (2/5)\ngo.ps_rpc RUNNING pid 456, uptime 0:00:01\n"}
+	service = NewServiceWithRunner(restartRunner, log.New(io.Discard, "", 0))
+	restarted, err := service.Restart(context.Background(), ProcessActionInput{Service: "psl-be-partystar", Processes: []string{"rpc"}})
+	if err != nil || len(restarted.Processes) != 1 || restarted.Processes[0].RestartAttempts != 2 || restarted.Processes[0].PID != 456 {
+		t.Fatalf("restart = %#v, error = %v", restarted, err)
 	}
 }
 

@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	defaultQueryURL  = "http://127.0.0.1/gk/v1/external/testEnvQuery"
-	defaultTimeout   = 12 * time.Second
-	defaultMaxBodyMB = 2
-	shutdownTimeout  = 10 * time.Second
-	deploymentWindow = 15 * time.Minute
+	defaultQueryURL           = "http://127.0.0.1/gk/v1/external/testEnvQuery"
+	defaultTimeout            = 12 * time.Second
+	defaultMaxBodyMB          = 2
+	shutdownTimeout           = 10 * time.Second
+	deploymentWindow          = 15 * time.Minute
+	deploymentShutdownTimeout = time.Minute
 )
 
 func main() {
@@ -86,13 +87,21 @@ func main() {
 		}
 		deployService = testdeploy.NewServiceWithNotifier(webhook, logger)
 	}
+	deployManager := testdeploy.NewManager(deployService)
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), deploymentShutdownTimeout)
+		defer cancel()
+		if err := deployManager.Close(ctx); err != nil {
+			logger.Printf("deployment_manager_shutdown error=%q", err)
+		}
+	}()
 	services := mcpserver.Services{
 		DB: service, Redis: redisService,
 		UserSnapshot:   usersnapshot.NewService(dbClient, logger),
 		RedisInspector: redisinspect.NewService(redisService, logger),
 		ReadOnlyAPI:    testapi.Unavailable{}, TestLogs: testlogs.Unavailable{},
 		TestBot:    testbot.Unavailable{},
-		TestDeploy: deployService,
+		TestDeploy: deployService, TestDeployJobs: deployManager,
 	}
 	if config.TestBotEnabled() {
 		botConfig, err := testbot.LoadConfig(config.TestBotConfig)

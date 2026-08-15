@@ -35,6 +35,8 @@ usage() {
 Usage:
   deploy-server.sh list
   deploy-server.sh processes <service>
+  deploy-server.sh status <service> <process> [process ...]
+  deploy-server.sh restart <service> <process> [process ...]
   deploy-server.sh plan <service> <process> [process ...]
   deploy-server.sh deploy <service> <process> [process ...] [--skip-tests] [--keep-backups N]
   deploy-server.sh <service> <process> [process ...] [--skip-tests] [--keep-backups N]
@@ -91,7 +93,7 @@ parse_args() {
 			action="list"
 			shift
 			;;
-		processes | plan | deploy)
+		processes | status | restart | plan | deploy)
 			action="$1"
 			shift
 			;;
@@ -410,6 +412,14 @@ restart_and_verify() {
 	done
 }
 
+print_process_statuses() {
+	local process
+
+	for process in "${processes[@]}"; do
+		supervisorctl status "$process"
+	done
+}
+
 rollback() {
 	local name process config_file
 
@@ -450,6 +460,9 @@ cleanup() {
 	trap - EXIT ERR
 	set +e
 	((exit_code == 0)) || rollback
+	if ((exit_code != 0)) && [[ -n "$build_dir" && -f "$build_dir/.deploy-revision" ]]; then
+		log "failed revision: $(<"$build_dir/.deploy-revision")"
+	fi
 	if [[ -n "$build_dir" && -d "$build_dir" ]]; then
 		git -C "$repository" worktree remove --force "$build_dir" >/dev/null 2>&1 || true
 	fi
@@ -483,6 +496,16 @@ main() {
 	fi
 
 	resolve_processes
+	if [[ "$action" == "status" ]]; then
+		print_process_statuses
+		exit 0
+	fi
+	if [[ "$action" == "restart" ]]; then
+		exec 9>"/tmp/deploy-server.$service.lock"
+		flock -n 9 || die "another deployment is running for $service"
+		restart_and_verify
+		exit 0
+	fi
 	print_plan
 	if [[ "$action" == "plan" ]]; then
 		exit 0
