@@ -1,0 +1,29 @@
+{
+  "base_url": "https://dev.partystar.cloud",
+  "login_path": "/account/passwordLogin",
+  "login_query": {
+    "v": "1",
+    "package": "sg.partying.lcb.ios",
+    "_ipv": "0",
+    "_platform": "ios",
+    "_index": "43",
+    "_model": "iPhone",
+    "_abi": ""
+  },
+  "headers": {
+    "Accept-Language": "en",
+    "User-Agent": "Xs ios V3.8.0.0 / Js V1.0.0.0 / Login V1",
+    "User-Tag": "psl-testbot-device",
+    "User-Did": "psl-testbot-device"
+  },
+  "endpoints": [
+    {
+      "name": "emoticon-result",
+      "path": "/go/ps/emoticons/getInteractiveEmoticonResult",
+      "method": "POST",
+      "encoding": "form",
+      "allowed_body_fields": ["interactive_emoticon_id"]
+    }
+  ],
+  "max_response_bytes": 524288
+}

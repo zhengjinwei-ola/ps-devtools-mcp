@@ -16,42 +16,52 @@ const (
 )
 
 type Config struct {
-	Transport         string
-	ListenAddress     string
-	AuthToken         string
-	AuthTokens        map[string]string
-	MaxConcurrent     int
-	TestDBHost        string
-	TestDBPort        int
-	TestDBUser        string
-	TestDBPassword    string
-	XianshiDatabase   string
-	ConfigDatabase    string
-	TestRedisAddress  string
-	TestRedisPassword string
-	TestRedisDatabase int
-	LogMCPCommand     string
-	LogMCPArgs        []string
-	ReadOnlyAPIConfig string
+	Transport             string
+	ListenAddress         string
+	AuthToken             string
+	AuthTokens            map[string]string
+	MaxConcurrent         int
+	TestDBHost            string
+	TestDBPort            int
+	TestDBUser            string
+	TestDBPassword        string
+	XianshiDatabase       string
+	ConfigDatabase        string
+	TestRedisAddress      string
+	TestRedisPassword     string
+	TestRedisDatabase     int
+	LogMCPCommand         string
+	LogMCPArgs            []string
+	ReadOnlyAPIConfig     string
+	TestBotConfig         string
+	TestBotArea           string
+	TestBotMobile         string
+	TestBotPassword       string
+	SlackDeployWebhookURL string
 }
 
 func Parse(args []string, getenv func(string) string) (Config, error) {
 	config := Config{
-		Transport:         envOrDefault(getenv, "PS_MCP_TRANSPORT", TransportStdio),
-		ListenAddress:     envOrDefault(getenv, "PS_MCP_LISTEN_ADDR", "127.0.0.1:8080"),
-		AuthToken:         strings.TrimSpace(getenv("PS_MCP_AUTH_TOKEN")),
-		MaxConcurrent:     envIntOrDefault(getenv, "PS_MCP_MAX_CONCURRENT", 16),
-		TestDBHost:        strings.TrimSpace(getenv("PS_TEST_DB_HOST")),
-		TestDBPort:        envIntOrDefault(getenv, "PS_TEST_DB_PORT", 3306),
-		TestDBUser:        strings.TrimSpace(getenv("PS_TEST_DB_USER")),
-		TestDBPassword:    getenv("PS_TEST_DB_PASSWORD"),
-		XianshiDatabase:   envOrDefault(getenv, "PS_TEST_DB_XIANSHI_DATABASE", "xianshi"),
-		ConfigDatabase:    envOrDefault(getenv, "PS_TEST_DB_CONFIG_DATABASE", "config"),
-		TestRedisAddress:  strings.TrimSpace(getenv("PS_TEST_REDIS_ADDRESS")),
-		TestRedisPassword: getenv("PS_TEST_REDIS_PASSWORD"),
-		TestRedisDatabase: envIntOrDefault(getenv, "PS_TEST_REDIS_DATABASE", 0),
-		LogMCPCommand:     strings.TrimSpace(getenv("PS_LOG_MCP_COMMAND")),
-		ReadOnlyAPIConfig: strings.TrimSpace(getenv("PS_MCP_READONLY_API_CONFIG")),
+		Transport:             envOrDefault(getenv, "PS_MCP_TRANSPORT", TransportStdio),
+		ListenAddress:         envOrDefault(getenv, "PS_MCP_LISTEN_ADDR", "127.0.0.1:8080"),
+		AuthToken:             strings.TrimSpace(getenv("PS_MCP_AUTH_TOKEN")),
+		MaxConcurrent:         envIntOrDefault(getenv, "PS_MCP_MAX_CONCURRENT", 16),
+		TestDBHost:            strings.TrimSpace(getenv("PS_TEST_DB_HOST")),
+		TestDBPort:            envIntOrDefault(getenv, "PS_TEST_DB_PORT", 3306),
+		TestDBUser:            strings.TrimSpace(getenv("PS_TEST_DB_USER")),
+		TestDBPassword:        getenv("PS_TEST_DB_PASSWORD"),
+		XianshiDatabase:       envOrDefault(getenv, "PS_TEST_DB_XIANSHI_DATABASE", "xianshi"),
+		ConfigDatabase:        envOrDefault(getenv, "PS_TEST_DB_CONFIG_DATABASE", "config"),
+		TestRedisAddress:      strings.TrimSpace(getenv("PS_TEST_REDIS_ADDRESS")),
+		TestRedisPassword:     getenv("PS_TEST_REDIS_PASSWORD"),
+		TestRedisDatabase:     envIntOrDefault(getenv, "PS_TEST_REDIS_DATABASE", 0),
+		LogMCPCommand:         strings.TrimSpace(getenv("PS_LOG_MCP_COMMAND")),
+		ReadOnlyAPIConfig:     strings.TrimSpace(getenv("PS_MCP_READONLY_API_CONFIG")),
+		TestBotConfig:         strings.TrimSpace(getenv("PS_MCP_TESTBOT_CONFIG")),
+		TestBotArea:           strings.TrimSpace(getenv("PS_TESTBOT_AREA")),
+		TestBotMobile:         strings.TrimSpace(getenv("PS_TESTBOT_MOBILE")),
+		TestBotPassword:       getenv("PS_TESTBOT_PASSWORD"),
+		SlackDeployWebhookURL: strings.TrimSpace(getenv("PS_MCP_SLACK_DEPLOY_WEBHOOK_URL")),
 	}
 	if raw := strings.TrimSpace(getenv("PS_MCP_AUTH_TOKENS_JSON")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &config.AuthTokens); err != nil {
@@ -123,8 +133,19 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 	if config.ReadOnlyAPIConfig != "" && !strings.HasPrefix(config.ReadOnlyAPIConfig, "/") {
 		return Config{}, fmt.Errorf("PS_MCP_READONLY_API_CONFIG must be an absolute path")
 	}
+	if config.TestBotConfig != "" && !strings.HasPrefix(config.TestBotConfig, "/") {
+		return Config{}, fmt.Errorf("PS_MCP_TESTBOT_CONFIG must be an absolute path")
+	}
+	testBotCredentials := config.TestBotArea != "" || config.TestBotMobile != "" || config.TestBotPassword != ""
+	if config.TestBotConfig != "" || testBotCredentials {
+		if config.TestBotConfig == "" || config.TestBotArea == "" || config.TestBotMobile == "" || config.TestBotPassword == "" {
+			return Config{}, fmt.Errorf("PS_MCP_TESTBOT_CONFIG, PS_TESTBOT_AREA, PS_TESTBOT_MOBILE and PS_TESTBOT_PASSWORD must be configured together")
+		}
+	}
 	return config, nil
 }
+
+func (c Config) TestBotEnabled() bool { return c.TestBotConfig != "" }
 
 func subtleTokenEqual(left, right string) bool {
 	return len(left) == len(right) && subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1

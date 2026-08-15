@@ -8,8 +8,12 @@
 - `get_test_user_snapshot`：读取固定的非敏感用户、VIP 与背包诊断字段。
 - `list_test_deploy_services` / `list_test_deploy_processes` / `plan_test_deployment`：查看白名单部署目标；
 - `deploy_test_service`：构建并部署白名单测试服务的指定 Supervisor 进程。
+- `list_testbot_endpoints` / `call_testbot_api`：自动登录配置的测试用户并调用预登记用户接口。
 
 服务不提供 Shell、任意文件路径或任意 URL。唯一写操作 `deploy_test_service` 只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
+
+TestBot 的手机号和密码仅从环境变量读取，业务 Token 只缓存在进程内存。接口必须在
+`config/testbot.test.json` 中预登记；副作用接口还要求 `confirm_side_effect=true`。
 
 ## 架构
 
@@ -45,7 +49,14 @@ PS_TEST_REDIS_ADDRESS=127.0.0.1:6379
 PS_TEST_REDIS_DATABASE=0
 PS_LOG_MCP_COMMAND=/home/ecs-user/webroot/psl-test-logs-mcp/bin/psl-test-logs-mcp
 PS_LOG_MCP_ARGS_JSON='["--config=/home/ecs-user/webroot/psl-test-logs-mcp/configs/sources.json"]'
+PS_MCP_TESTBOT_CONFIG=/home/ecs-user/webroot/ps-devtools-mcp/config/testbot.test.json
+PS_TESTBOT_AREA=<mobile-area>
+PS_TESTBOT_MOBILE=<secret>
+PS_TESTBOT_PASSWORD=<secret>
+PS_MCP_SLACK_DEPLOY_WEBHOOK_URL=https://hooks.slack.com/services/<secret>
 ```
+
+配置 Slack Incoming Webhook 后，`deploy_test_service` 会向 Webhook 绑定的固定频道发送开始及成功/失败通知。Webhook URL 属于密钥，只能放在权限受限的部署环境文件中；通知失败仅记录服务日志，不改变部署结果。
 
 HTTP 模式还需配置：
 

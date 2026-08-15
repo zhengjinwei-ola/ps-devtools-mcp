@@ -6,6 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/redisinspect"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testapi"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/testbot"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdb"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdeploy"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testlogs"
@@ -38,6 +39,11 @@ type readOnlyAPIService interface {
 	Call(context.Context, testapi.CallInput) (testapi.CallOutput, error)
 }
 
+type testBotService interface {
+	List(context.Context, testbot.ListInput) (testbot.ListOutput, error)
+	Call(context.Context, testbot.CallInput) (testbot.CallOutput, error)
+}
+
 type testLogService interface {
 	ListSources(context.Context, testlogs.ListSourcesInput) (testlogs.ListSourcesOutput, error)
 	Search(context.Context, testlogs.SearchInput) (testlogs.SearchOutput, error)
@@ -59,6 +65,7 @@ type Services struct {
 	UserSnapshot   userSnapshotService
 	RedisInspector redisInspectorService
 	ReadOnlyAPI    readOnlyAPIService
+	TestBot        testBotService
 	TestLogs       testLogService
 	TestDeploy     testDeployService
 }
@@ -144,6 +151,18 @@ func New(services Services) *mcp.Server {
 			"The endpoint, method, query keys, body fields, response size, redirects, and output redaction are constrained by server configuration.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testapi.CallInput) (*mcp.CallToolResult, testapi.CallOutput, error) {
 		output, err := services.ReadOnlyAPI.Call(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "list_testbot_endpoints", Description: "List operator-configured PSL test endpoints available to the authenticated testbot and whether each endpoint has side effects.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testbot.ListInput) (*mcp.CallToolResult, testbot.ListOutput, error) {
+		output, err := services.TestBot.List(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "call_testbot_api", Description: "Log in the configured PSL test user when needed, call one allowlisted user API with User-Token, and return a redacted bounded response. Endpoints marked with side effects require confirm_side_effect=true.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testbot.CallInput) (*mcp.CallToolResult, testbot.CallOutput, error) {
+		output, err := services.TestBot.Call(ctx, input)
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{

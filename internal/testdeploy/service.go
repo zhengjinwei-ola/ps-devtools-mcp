@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -41,6 +42,27 @@ type Runner interface {
 	Run(context.Context, ...string) (string, error)
 }
 
+type DeploymentStatus string
+
+const (
+	DeploymentStarted   DeploymentStatus = "started"
+	DeploymentSucceeded DeploymentStatus = "succeeded"
+	DeploymentFailed    DeploymentStatus = "failed"
+	notificationTimeout                  = 5 * time.Second
+)
+
+type DeploymentNotification struct {
+	Status    DeploymentStatus
+	Service   string
+	Processes []string
+	SkipTests bool
+	Duration  time.Duration
+}
+
+type DeploymentNotifier interface {
+	Notify(context.Context, DeploymentNotification) error
+}
+
 type commandRunner struct{ path string }
 
 func (r commandRunner) Run(ctx context.Context, args ...string) (string, error) {
@@ -61,8 +83,9 @@ func (r commandRunner) Run(ctx context.Context, args ...string) (string, error) 
 }
 
 type Service struct {
-	runner Runner
-	logger *log.Logger
+	runner   Runner
+	logger   *log.Logger
+	notifier DeploymentNotifier
 }
 
 func NewService(logger *log.Logger) *Service {
@@ -71,6 +94,14 @@ func NewService(logger *log.Logger) *Service {
 
 func NewServiceWithRunner(runner Runner, logger *log.Logger) *Service {
 	return &Service{runner: runner, logger: logger}
+}
+
+func NewServiceWithNotifier(notifier DeploymentNotifier, logger *log.Logger) *Service {
+	return &Service{runner: commandRunner{path: defaultScriptPath}, notifier: notifier, logger: logger}
+}
+
+func NewServiceWithRunnerAndNotifier(runner Runner, notifier DeploymentNotifier, logger *log.Logger) *Service {
+	return &Service{runner: runner, notifier: notifier, logger: logger}
 }
 
 func (s *Service) ListServices(ctx context.Context, _ ListServicesInput) (ListServicesOutput, error) {
@@ -97,7 +128,30 @@ func (s *Service) Plan(ctx context.Context, input DeploymentInput) (CommandOutpu
 }
 
 func (s *Service) Deploy(ctx context.Context, input DeploymentInput) (CommandOutput, error) {
-	return s.runDeploymentCommand(ctx, "deploy", input)
+	if err := validateDeployment(input); err != nil {
+		return CommandOutput{}, err
+	}
+	startedAt := time.Now()
+	s.notify(DeploymentNotification{Status: DeploymentStarted, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests})
+	output, err := s.runDeploymentCommand(ctx, "deploy", input)
+	status := DeploymentSucceeded
+	if err != nil {
+		status = DeploymentFailed
+	}
+	s.notify(DeploymentNotification{Status: status, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests, Duration: time.Since(startedAt)})
+	return output, err
+}
+
+func (s *Service) notify(event DeploymentNotification) {
+	if s.notifier == nil {
+		return
+	}
+	// Notification is best-effort and must never change the deployment result.
+	ctx, cancel := context.WithTimeout(context.Background(), notificationTimeout)
+	defer cancel()
+	if err := s.notifier.Notify(ctx, event); err != nil {
+		s.logger.Printf("slack_deploy_notification status=%q service=%q error=%q", event.Status, event.Service, err)
+	}
 }
 
 func (s *Service) runDeploymentCommand(ctx context.Context, action string, input DeploymentInput) (CommandOutput, error) {

@@ -16,6 +16,16 @@ type fakeRunner struct {
 	err    error
 }
 
+type fakeNotifier struct {
+	events []DeploymentNotification
+	err    error
+}
+
+func (n *fakeNotifier) Notify(_ context.Context, event DeploymentNotification) error {
+	n.events = append(n.events, event)
+	return n.err
+}
+
 func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
 	r.args = append([]string(nil), args...)
 	if r.output == "" && r.err == nil {
@@ -46,6 +56,40 @@ func TestDeployReturnsCommandOutputOnFailure(t *testing.T) {
 	}
 	if output.Output != "remote failure\n" {
 		t.Fatalf("output = %q, want runner output", output.Output)
+	}
+}
+
+func TestDeployNotifiesStartedAndSucceeded(t *testing.T) {
+	runner := &fakeRunner{output: "deployed\n"}
+	notifier := &fakeNotifier{}
+	service := NewServiceWithRunnerAndNotifier(runner, notifier, log.New(io.Discard, "", 0))
+	_, err := service.Deploy(context.Background(), DeploymentInput{
+		Service: "psl-be-partystar", Processes: []string{"http"}, SkipTests: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notifier.events) != 2 || notifier.events[0].Status != DeploymentStarted || notifier.events[1].Status != DeploymentSucceeded {
+		t.Fatalf("events = %#v", notifier.events)
+	}
+	if notifier.events[1].Duration < 0 {
+		t.Fatalf("duration = %s", notifier.events[1].Duration)
+	}
+}
+
+func TestDeployFailureNotificationDoesNotReplaceDeployError(t *testing.T) {
+	deployErr := errors.New("exit status 128")
+	runner := &fakeRunner{output: "remote failure\n", err: deployErr}
+	notifier := &fakeNotifier{err: errors.New("Slack unavailable")}
+	service := NewServiceWithRunnerAndNotifier(runner, notifier, log.New(io.Discard, "", 0))
+	_, err := service.Deploy(context.Background(), DeploymentInput{
+		Service: "psl-be-partystar", Processes: []string{"rpc"},
+	})
+	if !errors.Is(err, deployErr) {
+		t.Fatalf("error = %v, want deployment error", err)
+	}
+	if len(notifier.events) != 2 || notifier.events[1].Status != DeploymentFailed {
+		t.Fatalf("events = %#v", notifier.events)
 	}
 }
 

@@ -14,7 +14,9 @@ import (
 	"github.com/olaola-chat/ps-devtools-mcp/internal/httptransport"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/mcpserver"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/redisinspect"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/slacknotify"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testapi"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/testbot"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdb"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdeploy"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testlogs"
@@ -75,12 +77,33 @@ func main() {
 		logger.Printf("test_redis=direct address=%q database=%d", config.TestRedisAddress, config.TestRedisDatabase)
 	}
 	redisService := testredis.NewService(redisClient, logger)
+	deployService := testdeploy.NewService(logger)
+	if config.SlackDeployWebhookURL != "" {
+		webhookClient := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		webhook, err := slacknotify.NewWebhook(config.SlackDeployWebhookURL, webhookClient)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		deployService = testdeploy.NewServiceWithNotifier(webhook, logger)
+	}
 	services := mcpserver.Services{
 		DB: service, Redis: redisService,
 		UserSnapshot:   usersnapshot.NewService(dbClient, logger),
 		RedisInspector: redisinspect.NewService(redisService, logger),
 		ReadOnlyAPI:    testapi.Unavailable{}, TestLogs: testlogs.Unavailable{},
-		TestDeploy: testdeploy.NewService(logger),
+		TestBot:    testbot.Unavailable{},
+		TestDeploy: deployService,
+	}
+	if config.TestBotEnabled() {
+		botConfig, err := testbot.LoadConfig(config.TestBotConfig)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		botClient := &http.Client{Timeout: defaultTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		services.TestBot, err = testbot.NewService(botConfig, testbot.Credentials{Area: config.TestBotArea, Mobile: config.TestBotMobile, Password: config.TestBotPassword}, botClient, logger)
+		if err != nil {
+			logger.Fatal(err)
+		}
 	}
 	if config.ReadOnlyAPIConfig != "" {
 		apiConfig, err := testapi.LoadConfig(config.ReadOnlyAPIConfig)

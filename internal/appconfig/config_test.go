@@ -143,3 +143,38 @@ func TestFlagsOverrideTransportEnvironment(t *testing.T) {
 		t.Fatalf("transport = %q", config.Transport)
 	}
 }
+
+func TestParseTestBotRequiresCompleteConfiguration(t *testing.T) {
+	values := map[string]string{
+		"PS_MCP_TESTBOT_CONFIG": "/etc/testbot.json",
+		"PS_TESTBOT_AREA":       "86",
+		"PS_TESTBOT_MOBILE":     "test-mobile",
+		"PS_TESTBOT_PASSWORD":   "test-password",
+	}
+	config, err := Parse(nil, func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.TestBotEnabled() {
+		t.Fatal("testbot should be enabled")
+	}
+	delete(values, "PS_TESTBOT_PASSWORD")
+	if _, err := Parse(nil, func(key string) string { return values[key] }); err == nil {
+		t.Fatal("expected incomplete testbot configuration error")
+	}
+}
+
+func TestParseSlackDeployWebhook(t *testing.T) {
+	config, err := Parse(nil, func(key string) string {
+		if key == "PS_MCP_SLACK_DEPLOY_WEBHOOK_URL" {
+			return "https://hooks.slack.com/services/T/B/S"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.SlackDeployWebhookURL != "https://hooks.slack.com/services/T/B/S" {
+		t.Fatalf("webhook URL = %q", config.SlackDeployWebhookURL)
+	}
+}

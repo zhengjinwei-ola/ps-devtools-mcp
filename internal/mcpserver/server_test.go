@@ -78,6 +78,7 @@ func TestQueryTestDBToolCanBeCalledOverMCP(t *testing.T) {
 		"inspect_test_redis": false, "list_test_log_sources": false, "search_test_logs": false,
 		"trace_test_logs": false, "call_test_readonly_api": false,
 		"list_test_runtime_sources": false, "get_test_service_runtime": false,
+		"list_testbot_endpoints": false, "call_testbot_api": false,
 		"list_test_deploy_services": false, "list_test_deploy_processes": false,
 		"plan_test_deployment": false, "deploy_test_service": false,
 	}
