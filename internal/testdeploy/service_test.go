@@ -152,6 +152,21 @@ func TestDeployBuildsOnlyValidatedArguments(t *testing.T) {
 	}
 }
 
+func TestRoomDeployBuildsOnlyValidatedArguments(t *testing.T) {
+	runner := &fakeRunner{}
+	service := NewServiceWithRunner(runner, log.New(io.Discard, "", 0))
+	_, err := service.Deploy(context.Background(), DeploymentInput{
+		Service: "psl-be-room", Processes: []string{"http", "rpc", "cmd.special.refresh"}, SkipTests: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"deploy", "psl-be-room", "http", "rpc", "cmd.special.refresh", "--skip-tests"}
+	if !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.args, want)
+	}
+}
+
 func TestStatusAndRestartReturnStructuredProcesses(t *testing.T) {
 	statusRunner := &fakeRunner{output: "go.ps_rpc RUNNING pid 123, uptime 0:00:01\n"}
 	service := NewServiceWithRunner(statusRunner, log.New(io.Discard, "", 0))
@@ -176,6 +191,7 @@ func TestDeployRejectsUnapprovedInput(t *testing.T) {
 		{Service: "other", Processes: []string{"http"}},
 		{Service: "psl-be-partystar", Processes: []string{"../../bin/sh"}},
 		{Service: "psl-be-partystar", Processes: []string{"http"}, KeepBackups: 21},
+		{Service: "psl-be-room", Processes: []string{"room.cmd../../escape"}},
 	}
 	for _, input := range tests {
 		runner := &fakeRunner{}

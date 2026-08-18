@@ -30,6 +30,7 @@ ps-devtools-mcp/scripts/deploy-server.sh
 
 ```bash
 ./sh/deploy-server.sh processes psl-be-partystar
+./sh/deploy-server.sh processes psl-be-room
 ```
 
 预览部署计划：
@@ -59,10 +60,20 @@ ps-devtools-mcp/scripts/deploy-server.sh
 - 精确的 `go.ps_http`、`go.ps_rpc` 或 `go.ps_cmd.<name>`
 - `all`：所有已注册的上述 Partystar 进程
 
+`psl-be-room` 支持以下选择器：
+
+- `http`：`room.http`
+- `rpc`：测试环境单一进程 `room.rpc`
+- `cmd.<name>`：`room.cmd.<name>`，名称允许仓库既有的点号分段
+- 精确的 `room.http`、`room.rpc` 或 `room.cmd.<name>`
+- `all`：所有已注册的上述 Room 进程
+
+同一次部署可传多个选择器；每个服务只拉取和编译一次，再统一重启选中的进程。
+
 ## 部署规则
 
 - 只允许在 004 测试机 `192.168.35.221` 运行。
-- 当前白名单只有 `psl-be-partystar`。
+- 当前白名单包含 `psl-be-partystar` 和 `psl-be-room`。
 - 固定构建 `origin/dev` 的精确 commit。
 - GitHub HTTPS remote 仅在部署命令内改写为 SSH，并显式使用 004 的 `id_rsa` 部署密钥和 `BatchMode` 完成非交互式拉取，不依赖登录会话的 ssh-agent，也不永久修改仓库 remote。
 - 使用临时 Git worktree，不修改服务器常驻仓库的工作副本。

@@ -21,7 +21,7 @@ const (
 	deployPhaseMarker = "[deploy-server] phase=deploying"
 )
 
-var selectorPattern = regexp.MustCompile(`^(?:all|http|rpc|cmd\.[A-Za-z0-9_-]+|go\.ps_(?:http|rpc|cmd\.[A-Za-z0-9_-]+))$`)
+var selectorPattern = regexp.MustCompile(`^(?:all|http|rpc|cmd\.[A-Za-z0-9_.-]+|go\.ps_(?:http|rpc|cmd\.[A-Za-z0-9_-]+)|room\.(?:http|rpc|cmd\.[A-Za-z0-9_.-]+))$`)
 
 type ListServicesInput struct{}
 type ListServicesOutput struct {
@@ -296,7 +296,7 @@ func (s *Service) runDeploymentCommand(ctx context.Context, action string, input
 }
 
 func validateService(service string) error {
-	if service != "psl-be-partystar" {
+	if service != "psl-be-partystar" && service != "psl-be-room" {
 		return errors.New("service is not allowlisted")
 	}
 	return nil

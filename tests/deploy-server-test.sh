@@ -35,11 +35,34 @@ selectors=(rpc http cmd.activity http)
 processes=()
 resolve_processes
 assert_eq $'go.ps_cmd.activity\ngo.ps_http\ngo.ps_rpc' "$(printf '%s\n' "${processes[@]}")"
-assert_eq "psl-be-partystar" "$(allowed_services)"
+assert_eq $'psl-be-partystar\npsl-be-room' "$(allowed_services)"
 assert_eq "3" "$keep_backups"
 assert_eq "url.git@github.com:.insteadOf=https://github.com/" "$GITHUB_SSH_REWRITE"
 assert_eq "ssh -i /home/ecs-user/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes" "$DEPLOY_GIT_SSH_COMMAND"
 assert_eq $'config\ni18n\npublic\ntemplate' "$(printf '%s\n' "${asset_directories[@]}")"
+
+service="psl-be-room"
+configure_service
+assert_eq "/home/ecs-user/gitroot/psl-be-room" "$repository"
+assert_eq "/home/ecs-user/webroot/room" "$target_dir"
+assert_eq "room.http" "$(map_selector http)"
+assert_eq "room.rpc" "$(map_selector rpc)"
+assert_eq "room.cmd.room" "$(map_selector cmd.room)"
+assert_eq "room.cmd.special.refresh" "$(map_selector room.cmd.special.refresh)"
+
+registered_service_processes() {
+	printf '%s\n' room.http room.rpc room.cmd.room
+}
+selectors=(rpc http cmd.room http)
+processes=()
+resolve_processes
+assert_eq $'room.cmd.room\nroom.http\nroom.rpc' "$(printf '%s\n' "${processes[@]}")"
+assert_eq $'psl-be-partystar\npsl-be-room' "$(allowed_services)"
+
+if (map_selector 'room.cmd../../escape' >/dev/null 2>&1); then
+	printf 'path-like room CMD selector was unexpectedly accepted\n' >&2
+	exit 1
+fi
 
 (
 	action=""

@@ -45,6 +45,7 @@ Examples:
   deploy-server.sh list
   deploy-server.sh processes psl-be-partystar
   deploy-server.sh plan psl-be-partystar http cmd.activity
+  deploy-server.sh plan psl-be-room http rpc cmd.room
   deploy-server.sh psl-be-partystar http
   deploy-server.sh deploy psl-be-partystar rpc cmd.user_exp
 
@@ -63,7 +64,7 @@ die() {
 }
 
 allowed_services() {
-	printf '%s\n' "psl-be-partystar"
+	printf '%s\n' "psl-be-partystar" "psl-be-room"
 }
 
 configure_service() {
@@ -73,6 +74,13 @@ configure_service() {
 			target_dir="$WEB_ROOT/psl-be-partystar"
 			branch="$DEFAULT_BRANCH"
 			after_copy_hook="/home/ecs-user/sh/consul.init.sh"
+			artifact_names=(http rpc cmd)
+			asset_directories=(config i18n public template)
+			;;
+		psl-be-room)
+			repository="$GIT_ROOT/psl-be-room"
+			target_dir="$WEB_ROOT/room"
+			branch="$DEFAULT_BRANCH"
 			artifact_names=(http rpc cmd)
 			asset_directories=(config i18n public template)
 			;;
@@ -179,6 +187,11 @@ registered_service_processes() {
 				awk '$1 == "go.ps_http" || $1 == "go.ps_rpc" || $1 ~ /^go\.ps_cmd\./ {print $1}' |
 				sort -u
 			;;
+		psl-be-room)
+			{ supervisorctl status 2>/dev/null || true; } |
+				awk '$1 == "room.http" || $1 == "room.rpc" || $1 ~ /^room\.cmd\./ {print $1}' |
+				sort -u
+			;;
 	esac
 }
 
@@ -200,6 +213,18 @@ map_selector() {
 			suffix=${1#go.ps_cmd.}
 			[[ "$suffix" =~ ^[A-Za-z0-9_-]+$ ]] || die "invalid Supervisor process name: $1"
 			printf 'go.ps_cmd.%s\n' "$suffix"
+			;;
+		psl-be-room:http) printf '%s\n' "room.http" ;;
+		psl-be-room:rpc) printf '%s\n' "room.rpc" ;;
+		psl-be-room:cmd.*)
+			suffix=${1#cmd.}
+			[[ "$suffix" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid room CMD process selector: $1"
+			printf 'room.cmd.%s\n' "$suffix"
+			;;
+		psl-be-room:room.http | psl-be-room:room.rpc | psl-be-room:room.cmd.*)
+			suffix=${1#room.}
+			[[ "$suffix" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid room Supervisor process name: $1"
+			printf 'room.%s\n' "$suffix"
 			;;
 		*) die "unsupported process selector for $service: $1" ;;
 	esac
@@ -258,6 +283,20 @@ find_partystar_cmd_config() {
 	return 1
 }
 
+find_room_process_config() {
+	local process=$1 file declared_program
+
+	while IFS= read -r file; do
+		declared_program=$(sed -n 's/^\[program:\([^]]*\)\]$/\1/p' "$file" | head -1)
+		if [[ "$declared_program" == "$process" ]]; then
+			printf '%s\n' "$file"
+			return 0
+		fi
+	done < <(find "$build_dir/deploy" -maxdepth 3 -type f -name '*.conf' -print | sort)
+
+	return 1
+}
+
 render_new_supervisor_config() {
 	local process=$1 source_file target_file
 
@@ -272,6 +311,18 @@ render_new_supervisor_config() {
 				-e 's/config_prod\.toml/config_dev.toml/g' \
 				-e '/^environment[[:space:]]*=[[:space:]]*APP_VERSION=/d' \
 				"$source_file" >"$backup_dir/$process.conf.new"
+			grep -qxF "[program:$process]" "$backup_dir/$process.conf.new" ||
+				die "rendered config has an unexpected program name: $process"
+			grep -qF "directory=$target_dir" "$backup_dir/$process.conf.new" ||
+				die "rendered config has an unexpected target directory: $process"
+			new_supervisor_configs+=("$process")
+			;;
+		psl-be-room:room.http | psl-be-room:room.rpc | psl-be-room:room.cmd.*)
+			source_file=$(find_room_process_config "$process") ||
+				die "new process has no matching repository Supervisor config: $process"
+			target_file="$SUPERVISOR_CONF_DIR/$process.conf"
+			[[ ! -e "$target_file" ]] || die "refusing to overwrite unregistered Supervisor config: $target_file"
+			sed -e '/^environment[[:space:]]*=[[:space:]]*APP_VERSION=/d' "$source_file" >"$backup_dir/$process.conf.new"
 			grep -qxF "[program:$process]" "$backup_dir/$process.conf.new" ||
 				die "rendered config has an unexpected program name: $process"
 			grep -qF "directory=$target_dir" "$backup_dir/$process.conf.new" ||
@@ -315,6 +366,19 @@ build_source() {
 				fi
 				# CI_PULL_REQUEST is only used by reviewdog, but the legacy Makefile
 				# otherwise evaluates a gh command even for the build target.
+				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build CI_PULL_REQUEST=
+			)
+			;;
+		psl-be-room)
+			(
+				cd "$build_dir"
+				export PATH="/usr/local/go/bin:/home/ecs-user/go/bin:$PATH"
+				export GOPATH="/home/ecs-user/go"
+				export GOMODCACHE="$GOPATH/pkg/mod"
+				export GOCACHE="/home/ecs-user/.cache/go-build"
+				if [[ "$run_tests" == true ]]; then
+					go test ./...
+				fi
 				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build CI_PULL_REQUEST=
 			)
 			;;
