@@ -78,9 +78,9 @@ configure_service() {
 			;;
 		psl-be-room)
 			repository="$GIT_ROOT/psl-be-room"
-			target_dir="$WEB_ROOT/room"
+			target_dir="$WEB_ROOT/psl-be-room"
 			branch="$DEFAULT_BRANCH"
-			artifact_names=(http rpc cmd)
+			artifact_names=(room_http room_rpc room_cmd)
 			asset_directories=(config i18n public template)
 			;;
 		*)
@@ -373,6 +373,9 @@ build_source() {
 				export GOMODCACHE="$GOPATH/pkg/mod"
 				export GOCACHE="/home/ecs-user/.cache/go-build"
 				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build CI_PULL_REQUEST=
+				cp bin/http bin/room_http
+				cp bin/rpc bin/room_rpc
+				cp bin/cmd bin/room_cmd
 			)
 			;;
 	esac

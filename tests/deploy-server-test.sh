@@ -44,7 +44,8 @@ assert_eq $'config\ni18n\npublic\ntemplate' "$(printf '%s\n' "${asset_directorie
 service="psl-be-room"
 configure_service
 assert_eq "/home/ecs-user/gitroot/psl-be-room" "$repository"
-assert_eq "/home/ecs-user/webroot/room" "$target_dir"
+assert_eq "/home/ecs-user/webroot/psl-be-room" "$target_dir"
+assert_eq $'room_http\nroom_rpc\nroom_cmd' "$(printf '%s\n' "${artifact_names[@]}")"
 assert_eq "room.http" "$(map_selector http)"
 assert_eq "room.rpc" "$(map_selector rpc)"
 assert_eq "room.cmd.room" "$(map_selector cmd.room)"
