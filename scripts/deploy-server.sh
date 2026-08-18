@@ -14,7 +14,6 @@ readonly DEPLOY_GIT_SSH_COMMAND='ssh -i /home/ecs-user/.ssh/id_rsa -o Identities
 
 action="deploy"
 service=""
-run_tests=true
 dry_run=false
 keep_backups=$DEFAULT_KEEP_BACKUPS
 build_dir=""
@@ -126,7 +125,7 @@ parse_args() {
 	while (($# > 0)); do
 		case "$1" in
 			--skip-tests)
-				run_tests=false
+				# Kept for backward compatibility. Test deployments only build artifacts.
 				;;
 			--keep-backups)
 				(($# >= 2)) || die "--keep-backups requires a value"
@@ -361,9 +360,6 @@ build_source() {
 				export GOPATH="/home/ecs-user/go"
 				export GOMODCACHE="$GOPATH/pkg/mod"
 				export GOCACHE="/home/ecs-user/.cache/go-build"
-				if [[ "$run_tests" == true ]]; then
-					go test ./...
-				fi
 				# CI_PULL_REQUEST is only used by reviewdog, but the legacy Makefile
 				# otherwise evaluates a gh command even for the build target.
 				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build CI_PULL_REQUEST=
@@ -376,9 +372,6 @@ build_source() {
 				export GOPATH="/home/ecs-user/go"
 				export GOMODCACHE="$GOPATH/pkg/mod"
 				export GOCACHE="/home/ecs-user/.cache/go-build"
-				if [[ "$run_tests" == true ]]; then
-					go test ./...
-				fi
 				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build CI_PULL_REQUEST=
 			)
 			;;
@@ -539,7 +532,7 @@ print_plan() {
 	log "source: origin/$branch"
 	log "repository: $repository"
 	log "target: $target_dir"
-	log "tests: $run_tests"
+	log "tests: false"
 	log "backup retention: $keep_backups"
 	printf '[deploy-server] processes:\n'
 	printf '  - %s\n' "${processes[@]}"

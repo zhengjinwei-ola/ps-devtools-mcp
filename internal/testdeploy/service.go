@@ -36,7 +36,7 @@ type ProcessesOutput struct {
 type DeploymentInput struct {
 	Service     string   `json:"service" jsonschema:"Allowlisted test service name."`
 	Processes   []string `json:"processes" jsonschema:"One or more allowlisted process selectors."`
-	SkipTests   bool     `json:"skip_tests,omitempty" jsonschema:"Skip repository tests only when known historical failures have been reviewed."`
+	SkipTests   bool     `json:"skip_tests,omitempty" jsonschema:"Deprecated compatibility field; PSL 004 deployments do not run repository tests."`
 	KeepBackups int      `json:"keep_backups,omitempty" jsonschema:"Successful backups to retain; zero uses the server default of 3."`
 }
 type CommandOutput struct {
