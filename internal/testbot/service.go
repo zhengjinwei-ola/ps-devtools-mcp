@@ -3,6 +3,7 @@ package testbot
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -22,6 +23,10 @@ import (
 
 const maxRequestBodyBytes = 64 << 10
 
+const legacyFirewallSignSuffix = "!rilegoule#"
+
+var legacyFirewallSignFields = []string{"_abi", "_index", "_ipv", "_model", "_platform", "_timestamp", "format", "package"}
+
 var textSecrets = regexp.MustCompile(`(?i)((?:authorization|user-token|access_?token|refresh_?token|password|passwd|secret|cookie|session)["']?\s*[:=]\s*["']?)[^"'\s,;]+`)
 
 type Credentials struct {
@@ -37,8 +42,10 @@ type Service struct {
 	endpoints map[string]Endpoint
 	creds     Credentials
 
-	loginMu sync.Mutex
-	token   string
+	loginMu           sync.Mutex
+	token             string
+	signMu            sync.Mutex
+	lastSignTimestamp int64
 }
 
 type Unavailable struct{}
@@ -156,7 +163,11 @@ func (s *Service) login(ctx context.Context, force bool) (string, error) {
 
 func (s *Service) callWithToken(ctx context.Context, endpoint Endpoint, input CallInput, token string) (CallOutput, error) {
 	requestID := newRequestID()
-	target, err := s.buildURL(endpoint.Path, input.Query)
+	query := input.Query
+	if endpoint.LegacyFirewallSign {
+		query = s.legacySignedQuery(input.Query)
+	}
+	target, err := s.buildURL(endpoint.Path, query)
 	if err != nil {
 		return CallOutput{}, err
 	}
@@ -192,6 +203,46 @@ func (s *Service) callWithToken(ctx context.Context, endpoint Endpoint, input Ca
 		s.logger.Printf("tool=testbot action=call endpoint=%q method=%s side_effect=%t status=%d request_id=%q token_fingerprint=%s bytes=%d truncated=%t duration_ms=%d", endpoint.Name, endpoint.Method, endpoint.SideEffect, resp.StatusCode, requestID, tokenFingerprint(token), len(data), truncated, output.ElapsedMS)
 	}
 	return output, nil
+}
+
+// legacySignedQuery reproduces the old Partystar client signature. The timestamp
+// is monotonic because the legacy firewall treats an identical same-second sign
+// as a replay, even when the endpoint or request body differs.
+func (s *Service) legacySignedQuery(input map[string]string) map[string]string {
+	query := make(map[string]string, len(s.config.LoginQuery)+len(input)+2)
+	for key, value := range input {
+		query[key] = value
+	}
+	// Configured client identity is authoritative; callers cannot override the
+	// fields covered by the legacy signature through an endpoint allowlist.
+	for key, value := range s.config.LoginQuery {
+		query[key] = value
+	}
+
+	s.signMu.Lock()
+	timestamp := time.Now().Unix()
+	if timestamp <= s.lastSignTimestamp {
+		timestamp = s.lastSignTimestamp + 1
+	}
+	s.lastSignTimestamp = timestamp
+	s.signMu.Unlock()
+	query["_timestamp"] = fmt.Sprintf("%d", timestamp)
+
+	query["_sign"] = legacyFirewallSign(query)
+	return query
+}
+
+func legacyFirewallSign(query map[string]string) string {
+	parts := make([]string, 0, len(legacyFirewallSignFields))
+	for _, key := range legacyFirewallSignFields {
+		value, exists := query[key]
+		if key == "format" && !exists {
+			continue
+		}
+		parts = append(parts, key+"="+value)
+	}
+	sum := md5.Sum([]byte(strings.Join(parts, "&") + legacyFirewallSignSuffix))
+	return hex.EncodeToString(sum[:])
 }
 
 func (s *Service) buildURL(path string, query map[string]string) (string, error) {

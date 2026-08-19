@@ -107,6 +107,53 @@ func TestServiceRetriesLoginOnceAfterUnauthorized(t *testing.T) {
 	}
 }
 
+func TestServiceSignsLegacyFirewallRequests(t *testing.T) {
+	var previousTimestamp string
+	var apiCalls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/login" {
+			return jsonResponse(http.StatusOK, `{"success":true,"data":{"uid":123,"token":"token"}}`), nil
+		}
+		query := request.URL.Query()
+		if query.Get("room_id") != "42" || query.Get("package") != "test.package" || query.Get("_timestamp") == "" || query.Get("_sign") == "" {
+			t.Fatalf("unexpected signed query: %v", query)
+		}
+		unsigned := make(map[string]string, len(query))
+		for key := range query {
+			if key != "_sign" {
+				unsigned[key] = query.Get(key)
+			}
+		}
+		expected := legacyFirewallSign(unsigned)
+		if query.Get("_sign") != expected {
+			t.Fatalf("sign = %q, want %q", query.Get("_sign"), expected)
+		}
+		if previousTimestamp != "" && query.Get("_timestamp") == previousTimestamp {
+			t.Fatal("signed requests reused a timestamp")
+		}
+		previousTimestamp = query.Get("_timestamp")
+		apiCalls.Add(1)
+		return jsonResponse(http.StatusOK, `{"ok":true}`), nil
+	})}
+
+	service, err := NewService(Config{
+		BaseURL: "https://test.invalid", LoginPath: "/login", MaxResponseBytes: 4096,
+		LoginQuery: map[string]string{"package": "test.package", "_ipv": "0", "_platform": "ios", "_index": "43", "_model": "iPhone", "_abi": ""},
+		Endpoints:  []Endpoint{{Name: "giftable", Path: "/giftable", Method: http.MethodGet, LegacyFirewallSign: true, AllowedQueryKeys: []string{"room_id"}}},
+	}, Credentials{Area: "86", Mobile: "m", Password: "p"}, client, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := service.Call(context.Background(), CallInput{Endpoint: "giftable", Query: map[string]string{"room_id": "42"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if apiCalls.Load() != 2 {
+		t.Fatalf("api calls = %d, want 2", apiCalls.Load())
+	}
+}
+
 func TestRedactResponseProtectsSecretsInTruncatedJSON(t *testing.T) {
 	body := redactResponse([]byte(`{"access_token":"secret","value":"partial`), "application/json", true).(string)
 	if strings.Contains(body, "secret") || !strings.Contains(body, "[REDACTED]") {

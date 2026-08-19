@@ -11,14 +11,15 @@ import (
 const defaultMaxResponseBytes = 512 << 10
 
 type Endpoint struct {
-	Name              string            `json:"name"`
-	Path              string            `json:"path"`
-	Method            string            `json:"method"`
-	Encoding          string            `json:"encoding,omitempty"`
-	AllowedQueryKeys  []string          `json:"allowed_query_keys,omitempty"`
-	AllowedBodyFields []string          `json:"allowed_body_fields,omitempty"`
-	Headers           map[string]string `json:"headers,omitempty"`
-	SideEffect        bool              `json:"side_effect,omitempty"`
+	Name               string            `json:"name"`
+	Path               string            `json:"path"`
+	Method             string            `json:"method"`
+	Encoding           string            `json:"encoding,omitempty"`
+	LegacyFirewallSign bool              `json:"legacy_firewall_signing,omitempty"`
+	AllowedQueryKeys   []string          `json:"allowed_query_keys,omitempty"`
+	AllowedBodyFields  []string          `json:"allowed_body_fields,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	SideEffect         bool              `json:"side_effect,omitempty"`
 }
 
 type Config struct {

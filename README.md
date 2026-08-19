@@ -17,6 +17,9 @@
 
 TestBot 的手机号和密码仅从环境变量读取，业务 Token 只缓存在进程内存。接口必须在
 `config/testbot.test.json` 中预登记；副作用接口还要求 `confirm_side_effect=true`。
+旧 Partystar 接口若经过 Fire 中间件，可在端点配置中启用
+`legacy_firewall_signing`；TestBot 会复用 `login_query` 的客户端公共参数，并动态生成
+`_timestamp` 与 `_sign`，调用方不能自行覆盖这些签名参数。
 
 ## 架构
 

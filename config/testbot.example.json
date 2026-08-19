@@ -3,7 +3,12 @@
   "login_path": "/account/passwordLogin",
   "login_query": {
     "package": "sg.partying.lcb.ios",
-    "v": "1"
+    "v": "1",
+    "_ipv": "0",
+    "_platform": "ios",
+    "_index": "43",
+    "_model": "iPhone",
+    "_abi": ""
   },
   "headers": {
     "Accept-Language": "en",
@@ -26,6 +31,13 @@
       "encoding": "json",
       "allowed_body_fields": ["id"],
       "side_effect": true
+    },
+    {
+      "name": "example-legacy-signed-read",
+      "path": "/replace/with/verified/path",
+      "method": "GET",
+      "legacy_firewall_signing": true,
+      "allowed_query_keys": ["room_id"]
     }
   ],
   "max_response_bytes": 524288

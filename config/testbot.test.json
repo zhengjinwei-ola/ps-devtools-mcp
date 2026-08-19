@@ -23,6 +23,22 @@
       "method": "POST",
       "encoding": "form",
       "allowed_body_fields": ["interactive_emoticon_id"]
+    },
+    {
+      "name": "room-lucky-bag-giftable-commodities",
+      "path": "/go/ps/lucky_bag/getGiftableCommodities",
+      "method": "GET",
+      "legacy_firewall_signing": true,
+      "allowed_query_keys": ["room_id"]
+    },
+    {
+      "name": "room-lucky-bag-create",
+      "path": "/go/ps/lucky_bag/createRoomLuckyBag",
+      "method": "POST",
+      "encoding": "form",
+      "legacy_firewall_signing": true,
+      "allowed_body_fields": ["room_id", "prize_type", "per_prize", "winner_count", "join_type", "keyword", "duration", "user_item_id"],
+      "side_effect": true
     }
   ],
   "max_response_bytes": 524288
