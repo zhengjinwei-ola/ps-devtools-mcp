@@ -151,3 +151,52 @@ func TestQueryTestRedisToolCanBeCalledOverMCP(t *testing.T) {
 		t.Fatalf("result error = %v, service calls = %d", result.IsError, redisService.calls)
 	}
 }
+
+func TestToolOutputSchemaPropertiesAreObjects(t *testing.T) {
+	ctx := context.Background()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := New(Services{TestDeploy: stubDeployService{}, TestDeployJobs: stubDeploymentJobService{}}).Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.1.0"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientSession.Close()
+
+	wantFlexibleProperties := map[string]string{
+		"inspect_test_redis":     "value",
+		"call_test_readonly_api": "body",
+	}
+	found := make(map[string]bool, len(wantFlexibleProperties))
+	for tool, toolErr := range clientSession.Tools(ctx, nil) {
+		if toolErr != nil {
+			t.Fatal(toolErr)
+		}
+		propertyName, ok := wantFlexibleProperties[tool.Name]
+		if !ok {
+			continue
+		}
+		outputSchema, ok := tool.OutputSchema.(map[string]any)
+		if !ok {
+			t.Fatalf("tool %q output schema type = %T, want map", tool.Name, tool.OutputSchema)
+		}
+		properties, ok := outputSchema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("tool %q properties type = %T, want map", tool.Name, outputSchema["properties"])
+		}
+		if _, ok := properties[propertyName].(map[string]any); !ok {
+			t.Errorf("tool %q property %q schema type = %T, want map", tool.Name, propertyName, properties[propertyName])
+		}
+		found[tool.Name] = true
+	}
+	for name := range wantFlexibleProperties {
+		if !found[name] {
+			t.Errorf("tool %q was not registered", name)
+		}
+	}
+}

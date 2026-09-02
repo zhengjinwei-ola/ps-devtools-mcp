@@ -174,7 +174,8 @@ func New(services Services) *mcp.Server {
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "inspect_test_redis",
+		Name:         "inspect_test_redis",
+		OutputSchema: inspectRedisOutputSchema(),
 		Description: "Inspect one exact PSL test Redis key with TYPE, TTL, and bounded type-aware content. " +
 			"Collection reads are capped and write commands are never exposed.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input redisinspect.InspectInput) (*mcp.CallToolResult, redisinspect.InspectOutput, error) {
@@ -200,7 +201,9 @@ func New(services Services) *mcp.Server {
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "call_test_readonly_api", Description: "Call one operator-configured PSL test read-only HTTP endpoint. " +
+		Name:         "call_test_readonly_api",
+		OutputSchema: callReadOnlyAPIOutputSchema(),
+		Description: "Call one operator-configured PSL test read-only HTTP endpoint. " +
 			"The endpoint, method, query keys, body fields, response size, redirects, and output redaction are constrained by server configuration.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testapi.CallInput) (*mcp.CallToolResult, testapi.CallOutput, error) {
 		output, err := services.ReadOnlyAPI.Call(ctx, input)
@@ -231,4 +234,39 @@ func New(services Services) *mcp.Server {
 		return nil, output, err
 	})
 	return server
+}
+
+// These schemas are explicit because jsonschema-go represents interface{} as the
+// boolean schema true. Some MCP clients only accept object-form property schemas,
+// even though both forms are valid JSON Schema. An empty object preserves the
+// existing "any JSON value" contract while remaining compatible with those clients.
+func inspectRedisOutputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key":         map[string]any{"type": "string"},
+			"type":        map[string]any{"type": "string"},
+			"ttl_seconds": map[string]any{"type": "integer"},
+			"value":       map[string]any{},
+			"next_cursor": map[string]any{"type": "string"},
+			"truncated":   map[string]any{"type": "boolean"},
+			"value_error": map[string]any{"type": "string"},
+		},
+		"required": []string{"key", "type", "ttl_seconds"},
+	}
+}
+
+func callReadOnlyAPIOutputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"endpoint":     map[string]any{"type": "string"},
+			"status_code":  map[string]any{"type": "integer"},
+			"content_type": map[string]any{"type": "string"},
+			"body":         map[string]any{},
+			"elapsed_ms":   map[string]any{"type": "integer"},
+			"truncated":    map[string]any{"type": "boolean"},
+		},
+		"required": []string{"endpoint", "status_code", "elapsed_ms"},
+	}
 }
