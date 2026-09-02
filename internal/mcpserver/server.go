@@ -216,7 +216,9 @@ func New(services Services) *mcp.Server {
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "call_testbot_api", Description: "Log in the configured PSL test user when needed, call one allowlisted user API with User-Token, and return a redacted bounded response. Endpoints marked with side effects require confirm_side_effect=true.",
+		Name:         "call_testbot_api",
+		OutputSchema: callTestBotAPIOutputSchema(),
+		Description:  "Log in the configured PSL test user when needed, call one allowlisted user API with User-Token, and return a redacted bounded response. Endpoints marked with side effects require confirm_side_effect=true.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testbot.CallInput) (*mcp.CallToolResult, testbot.CallOutput, error) {
 		output, err := services.TestBot.Call(ctx, input)
 		return nil, output, err
@@ -268,5 +270,21 @@ func callReadOnlyAPIOutputSchema() map[string]any {
 			"truncated":    map[string]any{"type": "boolean"},
 		},
 		"required": []string{"endpoint", "status_code", "elapsed_ms"},
+	}
+}
+
+func callTestBotAPIOutputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"endpoint":     map[string]any{"type": "string"},
+			"request_id":   map[string]any{"type": "string"},
+			"status_code":  map[string]any{"type": "integer"},
+			"content_type": map[string]any{"type": "string"},
+			"body":         map[string]any{},
+			"elapsed_ms":   map[string]any{"type": "integer"},
+			"truncated":    map[string]any{"type": "boolean"},
+		},
+		"required": []string{"endpoint", "request_id", "status_code", "elapsed_ms"},
 	}
 }

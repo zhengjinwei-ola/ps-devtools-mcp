@@ -171,6 +171,7 @@ func TestToolOutputSchemaPropertiesAreObjects(t *testing.T) {
 	wantFlexibleProperties := map[string]string{
 		"inspect_test_redis":     "value",
 		"call_test_readonly_api": "body",
+		"call_testbot_api":       "body",
 	}
 	found := make(map[string]bool, len(wantFlexibleProperties))
 	for tool, toolErr := range clientSession.Tools(ctx, nil) {
