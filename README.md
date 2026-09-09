@@ -12,8 +12,9 @@
 - `get_recent_deployments`：查看当前 MCP 进程内最近 50 条结构化部署记录；
 - `get_test_process_status` / `restart_test_process`：查询或重启白名单 Supervisor 进程。
 - `list_testbot_endpoints` / `call_testbot_api`：自动登录配置的测试用户并调用预登记用户接口。
+- `call_test_readonly_api`：从 004 发起任意 HTTP/HTTPS 请求，支持自定义 URL、方法、参数、Header 和请求体。
 
-服务不提供 Shell、任意文件路径或任意 URL。部署与重启工具只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。异步任务脱离单次 HTTP 请求运行，同一服务只允许一个任务，历史仅保存在当前 MCP 进程内。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
+服务不提供 Shell 或任意文件路径。`call_test_readonly_api` 是仅供已认证使用者调试测试环境的通用 HTTP 客户端，可访问 004 能够连接的任意 HTTP/HTTPS 地址。部署与重启工具只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。异步任务脱离单次 HTTP 请求运行，同一服务只允许一个任务，历史仅保存在当前 MCP 进程内。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
 
 TestBot 的手机号和密码仅从环境变量读取，业务 Token 只缓存在进程内存。接口必须在
 `config/testbot.test.json` 中预登记；副作用接口还要求 `confirm_side_effect=true`。
@@ -123,5 +124,6 @@ bearer_token_env_var = "PS_DEVTOOLS_REMOTE_TOKEN"
 - Redis：拒绝写命令和 `KEYS`、`HGETALL`、`SMEMBERS`、`INFO` 等无界命令；范围/扫描最多 500 项。
 - 日志：source 与路径只由服务端配置；查询按字面量匹配，限制文件数、扫描量、返回条数和输出大小，并对敏感内容脱敏。
 - HTTP MCP：必须使用 Bearer Token，默认只监听 loopback，公网访问必须经过可信 HTTPS 反向代理。
+- 通用 HTTP 调用：不限制目标地址、方法、参数、Header 或请求体；保留 12 秒超时、64 KiB 请求体、2 MiB 响应上限和响应敏感字段脱敏。
 
 从 `psl-devtools-mcp` 继承的基线说明保留在 `docs/psl-devtools-baseline.md`，仅供实现追溯，不能作为 004 部署配置使用。

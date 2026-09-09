@@ -99,9 +99,9 @@ func main() {
 		DB: service, Redis: redisService,
 		UserSnapshot:   usersnapshot.NewService(dbClient, logger),
 		RedisInspector: redisinspect.NewService(redisService, logger),
-		ReadOnlyAPI:    testapi.Unavailable{}, TestLogs: testlogs.Unavailable{},
-		TestBot:    testbot.Unavailable{},
-		TestDeploy: deployService, TestDeployJobs: deployManager,
+		TestLogs:       testlogs.Unavailable{},
+		TestBot:        testbot.Unavailable{},
+		TestDeploy:     deployService, TestDeployJobs: deployManager,
 	}
 	if config.TestBotEnabled() {
 		botConfig, err := testbot.LoadConfig(config.TestBotConfig)
@@ -114,19 +114,10 @@ func main() {
 			logger.Fatal(err)
 		}
 	}
-	if config.ReadOnlyAPIConfig != "" {
-		apiConfig, err := testapi.LoadConfig(config.ReadOnlyAPIConfig)
-		if err != nil {
-			logger.Fatal(err)
-		}
-		apiClient := &http.Client{
-			Timeout:       defaultTimeout,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		}
-		services.ReadOnlyAPI, err = testapi.NewService(apiConfig, apiClient, logger)
-		if err != nil {
-			logger.Fatal(err)
-		}
+	apiClient := &http.Client{Timeout: defaultTimeout}
+	services.ReadOnlyAPI, err = testapi.NewService(apiClient, defaultMaxBodyMB<<20, logger)
+	if err != nil {
+		logger.Fatal(err)
 	}
 	if config.LogMCPCommand != "" {
 		bridge := testlogs.NewLazy(config.LogMCPCommand, config.LogMCPArgs, logger)

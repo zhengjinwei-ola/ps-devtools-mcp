@@ -19,41 +19,33 @@ const maxRequestBodyBytes = 64 << 10
 var textSecrets = regexp.MustCompile(`(?i)((?:authorization|access_?token|refresh_?token|password|passwd|secret|cookie|session)\s*[:=]\s*)[^\s,;]+`)
 
 type Service struct {
-	endpoints        map[string]Endpoint
 	client           *http.Client
 	maxResponseBytes int64
 	logger           *log.Logger
 }
 
-type Unavailable struct{}
-
-func (Unavailable) Call(context.Context, CallInput) (CallOutput, error) {
-	return CallOutput{}, fmt.Errorf("read-only API allowlist is not configured; set PS_MCP_READONLY_API_CONFIG")
-}
-
-func NewService(config Config, client *http.Client, logger *log.Logger) (*Service, error) {
+func NewService(client *http.Client, maxResponseBytes int64, logger *log.Logger) (*Service, error) {
 	if client == nil {
 		return nil, fmt.Errorf("http client is required")
 	}
-	endpoints := make(map[string]Endpoint, len(config.Endpoints))
-	for _, endpoint := range config.Endpoints {
-		endpoints[endpoint.Name] = endpoint
+	if maxResponseBytes <= 0 {
+		maxResponseBytes = defaultMaxResponseBytes
 	}
-	return &Service{endpoints: endpoints, client: client, maxResponseBytes: config.MaxResponseBytes, logger: logger}, nil
+	return &Service{client: client, maxResponseBytes: maxResponseBytes, logger: logger}, nil
 }
 
 func (s *Service) Call(ctx context.Context, input CallInput) (CallOutput, error) {
-	endpoint, ok := s.endpoints[input.Endpoint]
-	if !ok {
-		return CallOutput{}, fmt.Errorf("unknown read-only endpoint %q", input.Endpoint)
+	parsed, err := url.Parse(strings.TrimSpace(input.URL))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return CallOutput{}, fmt.Errorf("url must be an absolute HTTP or HTTPS URL")
 	}
-	if err := validateKeys(input.Query, endpoint.AllowedQueryKeys, "query"); err != nil {
-		return CallOutput{}, err
+	method := strings.ToUpper(strings.TrimSpace(input.Method))
+	if method == "" {
+		method = http.MethodGet
 	}
-	if err := validateAnyKeys(input.Body, endpoint.AllowedBodyFields); err != nil {
-		return CallOutput{}, err
+	if !validMethod(method) {
+		return CallOutput{}, fmt.Errorf("invalid HTTP method %q", input.Method)
 	}
-	parsed, _ := url.Parse(endpoint.URL)
 	query := parsed.Query()
 	for key, value := range input.Query {
 		if len(value) > 2048 {
@@ -63,8 +55,13 @@ func (s *Service) Call(ctx context.Context, input CallInput) (CallOutput, error)
 	}
 	parsed.RawQuery = query.Encode()
 	var body io.Reader
-	if endpoint.Method == http.MethodPost {
-		encoded, err := json.Marshal(input.Body)
+	if input.Body != nil {
+		var encoded []byte
+		if raw, ok := input.Body.(string); ok {
+			encoded = []byte(raw)
+		} else {
+			encoded, err = json.Marshal(input.Body)
+		}
 		if err != nil {
 			return CallOutput{}, fmt.Errorf("encode request body: %w", err)
 		}
@@ -72,15 +69,18 @@ func (s *Service) Call(ctx context.Context, input CallInput) (CallOutput, error)
 			return CallOutput{}, fmt.Errorf("request body exceeds %d bytes", maxRequestBodyBytes)
 		}
 		body = bytes.NewReader(encoded)
-	} else if len(input.Body) > 0 {
-		return CallOutput{}, fmt.Errorf("endpoint %q does not accept a body", input.Endpoint)
 	}
-	req, err := http.NewRequestWithContext(ctx, endpoint.Method, parsed.String(), body)
+	req, err := http.NewRequestWithContext(ctx, method, parsed.String(), body)
 	if err != nil {
 		return CallOutput{}, fmt.Errorf("create read-only request: %w", err)
 	}
-	req.Header.Set("Accept", "application/json")
-	if endpoint.Method == http.MethodPost {
+	for key, value := range input.Headers {
+		req.Header.Set(key, value)
+	}
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "application/json")
+	}
+	if input.Body != nil && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	started := time.Now()
@@ -99,7 +99,7 @@ func (s *Service) Call(ctx context.Context, input CallInput) (CallOutput, error)
 		data = data[:s.maxResponseBytes]
 	}
 	output := CallOutput{
-		Endpoint: input.Endpoint, StatusCode: resp.StatusCode,
+		URL: parsed.String(), Method: method, StatusCode: resp.StatusCode,
 		ContentType: resp.Header.Get("Content-Type"), ElapsedMS: time.Since(started).Milliseconds(), Truncated: truncated,
 	}
 	if strings.Contains(strings.ToLower(output.ContentType), "json") && !truncated {
@@ -113,36 +113,19 @@ func (s *Service) Call(ctx context.Context, input CallInput) (CallOutput, error)
 		output.Body = textSecrets.ReplaceAllString(string(data), `${1}[REDACTED]`)
 	}
 	if s.logger != nil {
-		s.logger.Printf("tool=call_test_readonly_api endpoint=%q method=%s status=%d bytes=%d truncated=%t duration_ms=%d",
-			input.Endpoint, endpoint.Method, resp.StatusCode, len(data), truncated, output.ElapsedMS)
+		s.logger.Printf("tool=call_test_readonly_api url=%q method=%s status=%d bytes=%d truncated=%t duration_ms=%d",
+			parsed.String(), method, resp.StatusCode, len(data), truncated, output.ElapsedMS)
 	}
 	return output, nil
 }
 
-func validateKeys(values map[string]string, allowed []string, kind string) error {
-	set := make(map[string]struct{}, len(allowed))
-	for _, key := range allowed {
-		set[key] = struct{}{}
-	}
-	for key := range values {
-		if _, ok := set[key]; !ok {
-			return fmt.Errorf("%s field %q is not allowlisted", kind, key)
+func validMethod(method string) bool {
+	for _, char := range method {
+		if char <= 32 || char >= 127 || strings.ContainsRune("()<>@,;:\\\"/[]?={}", char) {
+			return false
 		}
 	}
-	return nil
-}
-
-func validateAnyKeys(values map[string]any, allowed []string) error {
-	set := make(map[string]struct{}, len(allowed))
-	for _, key := range allowed {
-		set[key] = struct{}{}
-	}
-	for key := range values {
-		if _, ok := set[key]; !ok {
-			return fmt.Errorf("body field %q is not allowlisted", key)
-		}
-	}
-	return nil
+	return method != ""
 }
 
 func redactJSON(value any) any {

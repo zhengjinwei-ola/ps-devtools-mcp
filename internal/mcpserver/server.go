@@ -203,8 +203,7 @@ func New(services Services) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:         "call_test_readonly_api",
 		OutputSchema: callReadOnlyAPIOutputSchema(),
-		Description: "Call one operator-configured PSL test read-only HTTP endpoint. " +
-			"The endpoint, method, query keys, body fields, response size, redirects, and output redaction are constrained by server configuration.",
+		Description:  "Call an arbitrary HTTP or HTTPS URL from the PSL test MCP host. The URL, method, query, headers, and body are supplied by the caller; responses are size-bounded and sensitive fields are redacted.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testapi.CallInput) (*mcp.CallToolResult, testapi.CallOutput, error) {
 		output, err := services.ReadOnlyAPI.Call(ctx, input)
 		return nil, output, err
@@ -262,14 +261,15 @@ func callReadOnlyAPIOutputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"endpoint":     map[string]any{"type": "string"},
+			"url":          map[string]any{"type": "string"},
+			"method":       map[string]any{"type": "string"},
 			"status_code":  map[string]any{"type": "integer"},
 			"content_type": map[string]any{"type": "string"},
 			"body":         map[string]any{},
 			"elapsed_ms":   map[string]any{"type": "integer"},
 			"truncated":    map[string]any{"type": "boolean"},
 		},
-		"required": []string{"endpoint", "status_code", "elapsed_ms"},
+		"required": []string{"url", "method", "status_code", "elapsed_ms"},
 	}
 }
 

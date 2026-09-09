@@ -10,7 +10,7 @@
 - `inspect_test_redis`：一次返回精确 key 的类型、TTL 和有界内容。
 - `list_test_log_sources` / `search_test_logs`：通过远端只读后端查询白名单日志。
 - `trace_test_logs`：在最多八个指定日志 source 中按 trace ID 串联证据。
-- `call_test_readonly_api`：调用管理员预登记的测试环境只读 HTTP endpoint。
+- `call_test_readonly_api`：从 MCP 所在测试机调用任意 HTTP/HTTPS URL。
 - `list_test_runtime_sources` / `get_test_service_runtime`：查询测试机二进制构建/VCS 信息、配置摘要和白名单配置值。
 
 `query_test_db` 和 `query_test_redis` 是语义工具未覆盖时的底层受限入口。
@@ -63,7 +63,7 @@
 - 审计日志只记录语句哈希、耗时、行数和错误状态，不记录 SQL、Redis key 或返回内容。
 - 本工具只面向测试环境，不提供通用 Shell、任意 URL 或写操作入口。
 - 日志工具只代理运维配置的远端日志 MCP，客户端不能提供命令或文件路径。
-- HTTP 工具只能选择配置文件中的 endpoint，方法、query key 和 body 字段均为白名单；禁止跨域重定向。
+- HTTP 工具接受调用方提供的 URL、方法、query、Header 和 body，不限制目标路由并允许正常重定向。
 - 运行信息从二进制 Go build info 和精确配置文件读取，不执行被检查的服务二进制。
 
 ## 可选后端配置
@@ -78,10 +78,7 @@ PS_LOG_MCP_ARGS_JSON=["/home/ecs-user/webroot/psl-test-logs-mcp/bin/psl-test-log
 远端日志 MCP 按首次日志或运行信息请求懒加载，之后在当前 PSL DevTools MCP
 进程内复用同一连接。DB、Redis 和只读 HTTP 请求不会等待跳板机连接初始化。
 
-只读 HTTP endpoint 使用 `PS_MCP_READONLY_API_CONFIG` 指向绝对路径 JSON 配置；
-格式见 `config/readonly-apis.example.json`。`config/readonly-apis.test.json` 已登记并验证
-`gk-external-ping` 与 `gk-commodity-ping`，未确认无副作用的业务接口不会预先加入。
-未配置时工具会返回明确错误，不会接受临时 URL。
+通用 HTTP 工具无需 endpoint 配置；调用时直接提供绝对 HTTP/HTTPS URL。
 
 ## 构建
 
