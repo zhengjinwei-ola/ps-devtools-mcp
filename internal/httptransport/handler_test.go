@@ -22,6 +22,10 @@ func (stubService) Query(_ context.Context, input testdb.QueryInput) (testdb.Que
 	return testdb.QueryOutput{Engine: input.Engine, ResultJSON: `{"columns":[],"rows":[]}`}, nil
 }
 
+func (stubService) ExecDDL(_ context.Context, input testdb.ExecDDLInput) (testdb.ExecDDLOutput, error) {
+	return testdb.ExecDDLOutput{Engine: input.Engine, Message: "ddl executed"}, nil
+}
+
 func (stubRedisService) Query(_ context.Context, _ testredis.QueryInput) (testredis.QueryOutput, error) {
 	return testredis.QueryOutput{ResultJSON: `null`}, nil
 }

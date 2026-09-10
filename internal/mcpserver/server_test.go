@@ -65,6 +65,11 @@ func (s *stubService) Query(_ context.Context, input testdb.QueryInput) (testdb.
 	return testdb.QueryOutput{Engine: input.Engine, ResultJSON: `{"columns":["id"],"rows":[[1]]}`, RowCount: 1}, nil
 }
 
+func (s *stubService) ExecDDL(_ context.Context, input testdb.ExecDDLInput) (testdb.ExecDDLOutput, error) {
+	s.calls++
+	return testdb.ExecDDLOutput{Engine: input.Engine, Message: "ddl executed"}, nil
+}
+
 func TestQueryTestDBToolCanBeCalledOverMCP(t *testing.T) {
 	ctx := context.Background()
 	service := &stubService{}

@@ -216,6 +216,37 @@ func (c *MySQLClient) Query(ctx context.Context, input QueryInput) (QueryOutput,
 	}, nil
 }
 
+// ExecDDL 执行一条受限 DDL（仅 engine=1 xianshi 库；调用方需先过 ValidateDDLSQL）。
+// 与 Query 的 read-only 事务不同，DDL 必须走普通 Exec（MySQL DDL 隐式提交，无法放事务里）。
+func (c *MySQLClient) ExecDDL(ctx context.Context, statement string) (int64, error) {
+	if err := ValidateDDLSQL(statement); err != nil {
+		return 0, fmt.Errorf("validate direct ddl: %w", err)
+	}
+	db, err := c.database(EngineXianshiSQL)
+	if err != nil {
+		return 0, err
+	}
+	queryCtx := ctx
+	cancel := func() {}
+	if c.queryTimeout > 0 {
+		// DDL 在大表上可能很慢，给到 3 倍查询超时（xs_bigarea 加列属小表，实际秒级）
+		queryCtx, cancel = context.WithTimeout(ctx, 3*c.queryTimeout)
+	}
+	defer cancel()
+
+	started := time.Now()
+	result, err := db.ExecContext(queryCtx, statement)
+	if err != nil {
+		return 0, fmt.Errorf("execute ddl: %w", err)
+	}
+	affected := int64(0)
+	if result != nil {
+		affected, _ = result.RowsAffected()
+	}
+	_ = started
+	return affected, nil
+}
+
 // validateDirectDatabaseScope prevents a privileged local credential from
 // escaping the database selected by the engine. The conservative rule also
 // rejects alias-qualified columns; callers can use unqualified identifiers or

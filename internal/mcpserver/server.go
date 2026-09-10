@@ -21,6 +21,7 @@ const (
 
 type queryService interface {
 	Query(ctx context.Context, input testdb.QueryInput) (testdb.QueryOutput, error)
+	ExecDDL(ctx context.Context, input testdb.ExecDDLInput) (testdb.ExecDDLOutput, error)
 }
 
 type redisQueryService interface {
@@ -89,6 +90,15 @@ func New(services Services) *mcp.Server {
 			"or config (engine 3) database. SELECT and WITH queries must include LIMIT.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdb.QueryInput) (*mcp.CallToolResult, testdb.QueryOutput, error) {
 		output, err := services.DB.Query(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "exec_test_db_ddl",
+		Description: "Execute ONE restricted DDL statement on the PSL test xianshi (engine 1) database only. " +
+			"Only CREATE TABLE [IF NOT EXISTS] and ALTER TABLE ... ADD [COLUMN] are allowed; " +
+			"DROP/DELETE/UPDATE/INSERT/RENAME/MODIFY/CHANGE and comments are rejected. Intended for applying migration SQL to the test database.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testdb.ExecDDLInput) (*mcp.CallToolResult, testdb.ExecDDLOutput, error) {
+		output, err := services.DB.ExecDDL(ctx, input)
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{
