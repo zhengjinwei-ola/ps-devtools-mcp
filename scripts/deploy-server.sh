@@ -63,7 +63,7 @@ die() {
 }
 
 allowed_services() {
-	printf '%s\n' "psl-be-partystar" "psl-be-room"
+	printf '%s\n' "psl-be-partystar" "psl-be-room" "ps-devtools-mcp"
 }
 
 configure_service() {
@@ -82,6 +82,13 @@ configure_service() {
 			branch="$DEFAULT_BRANCH"
 			artifact_names=(room_http room_rpc room_cmd)
 			asset_directories=(config i18n public template)
+			;;
+		ps-devtools-mcp)
+			repository="$GIT_ROOT/ps-devtools-mcp"
+			target_dir="$WEB_ROOT/ps-devtools-mcp"
+			branch="main"
+			artifact_names=(ps-devtools-mcp)
+			asset_directories=()
 			;;
 		*)
 			die "service is not allowlisted: $service"
@@ -376,6 +383,16 @@ build_source() {
 				cp bin/http bin/room_http
 				cp bin/rpc bin/room_rpc
 				cp bin/cmd bin/room_cmd
+			)
+			;;
+		ps-devtools-mcp)
+			(
+				cd "$build_dir"
+				export PATH="/usr/local/go/bin:/home/ecs-user/go/bin:$PATH"
+				export GOPATH="/home/ecs-user/go"
+				export GOMODCACHE="$GOPATH/pkg/mod"
+				export GOCACHE="/home/ecs-user/.cache/go-build"
+				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/ps-devtools-mcp ./cmd/ps-devtools-mcp
 			)
 			;;
 	esac
