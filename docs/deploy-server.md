@@ -73,7 +73,7 @@ ps-devtools-mcp/scripts/deploy-server.sh
 - `xs.<group>`：Supervisor 进程组名直传，如 `xs.admin`、`xs.cmd`、`xs.room.proc`
 - `all`：所有已注册的 `xs.*` 进程组（多进程组自动收敛为组名）
 
-部署 `oversea-server` 不走 Git worktree、构建、备份和回滚：在 webroot 仓库 `/home/ecs-user/webroot/psl-be-oversea-server` 执行 `git pull`（等价于运维 alias `sea="cd /home/ecs-user/webroot/psl-be-oversea-server && git pull"`；alias 对非交互 bash 不可见，脚本直接执行等价 git 命令）同步 PHP 代码，然后重启选中的 `xs.*` 进程组；HTTP 部分由 php-fpm 直接使用新代码，无需重启。`git pull` 失败时中止部署且不重启任何进程组。仅重启不更新代码时使用 `restart` 动作。
+部署 `oversea-server` 不走 Git worktree、构建、备份和回滚：在 webroot 仓库 `/home/ecs-user/webroot/psl-be-oversea-server` 执行 `git pull`（等价于运维 alias `sea="cd /home/ecs-user/webroot/psl-be-oversea-server && git pull"`；alias 对非交互 bash 不可见，脚本直接执行等价 git 命令，并使用与 worktree 拉取相同的固定 ssh key 认证）同步 PHP 代码，然后重启选中的 `xs.*` 进程组；HTTP 部分由 php-fpm 直接使用新代码，无需重启。`git pull` 失败时中止部署且不重启任何进程组。仅重启不更新代码时使用 `restart` 动作。
 
 `ps-devtools-mcp` 支持以下选择器：
 

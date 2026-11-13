@@ -436,7 +436,9 @@ run_sea_command() {
 		die "oversea-server webroot repository not found at $target_dir"
 	fi
 	log "syncing oversea-server PHP code via git pull in $target_dir"
-	git -C "$target_dir" pull ||
+	# The pull authenticates with the same pinned key as the worktree fetches; the
+	# MCP process environment has no ssh agent, so a default ssh lookup can fail.
+	GIT_SSH_COMMAND="$DEPLOY_GIT_SSH_COMMAND" git -C "$target_dir" pull ||
 		die "git pull failed in $target_dir; oversea-server webroot was not updated"
 	log "oversea-server code synced"
 }
