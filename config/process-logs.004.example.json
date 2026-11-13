@@ -90,6 +90,7 @@
     {"name": "ps.cache.profile", "patterns": ["/home/ecs-user/log/ps.cache.profile.stdout.log"]},
     {"name": "ps.cache.room", "patterns": ["/home/ecs-user/log/ps.cache.room.stdout.log"]},
     {"name": "ps.http", "patterns": ["/home/ecs-user/log/ps.http.stdout.log"]},
+    {"name": "pss_item", "patterns": ["/home/ecs-user/log/pss_item.stdout.log", "/home/ecs-user/log/pss_item.stderr.log"]},
     {"name": "ps.rpc.aggregation", "patterns": ["/home/ecs-user/log/ps.rpc.aggregation.stdout.log"]},
     {"name": "ps.rpc.broker", "patterns": ["/home/ecs-user/log/ps.rpc.broker.stdout.log"]},
     {"name": "ps.rpc.family", "patterns": ["/home/ecs-user/log/ps.rpc.family.stdout.log"]},
@@ -155,5 +156,6 @@
     {"name": "xs.wakeup", "patterns": ["/home/ecs-user/log/xs.wakeup.*.stdout.log", "/home/ecs-user/log/xs.wakeup.*.stderr.log"]}
   ],
   "max_lines": 200,
-  "max_line_bytes": 8192
+  "max_line_bytes": 8192,
+  "log_files_root": "/home/ecs-user/log"
 }

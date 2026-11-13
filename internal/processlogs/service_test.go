@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeTestConfig(t *testing.T, config string) string {
@@ -122,5 +123,96 @@ func TestTailTruncatesLongLinesWithoutSplittingRunes(t *testing.T) {
 	line := output.Files[0].Lines[0]
 	if !strings.HasSuffix(line, "…") || strings.Contains(line, "�") {
 		t.Fatalf("line not utf-8 safe: %q", line)
+	}
+}
+
+func TestListReturnsRegularFilesOrderedByMtime(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.log"), []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "escape.link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(dir, "b.log"), []byte("b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(Config{LogFilesRoot: dir}, nil)
+	output, err := service.List(context.Background(), ListInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Root != filepath.Clean(dir) || output.Total != 2 || output.Truncated {
+		t.Fatalf("output = %#v", output)
+	}
+	if len(output.Files) != 2 || output.Files[0].Name != "b.log" || output.Files[1].Name != "a.log" {
+		t.Fatalf("files = %#v", output.Files)
+	}
+}
+
+func TestListRequiresRootAndBoundsLimit(t *testing.T) {
+	service := NewService(Config{}, nil)
+	if _, err := service.List(context.Background(), ListInput{}); err == nil {
+		t.Fatal("listing without root unexpectedly accepted")
+	}
+	service = NewService(Config{LogFilesRoot: t.TempDir()}, nil)
+	if _, err := service.List(context.Background(), ListInput{Limit: -1}); err == nil {
+		t.Fatal("negative limit unexpectedly accepted")
+	}
+	output, err := service.List(context.Background(), ListInput{Limit: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Files == nil {
+		t.Fatal("empty directory should return an empty file list")
+	}
+}
+
+func TestTailByFileWithinRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pss_item.stdout.log"), []byte("password=abc123\nlast-line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(Config{LogFilesRoot: dir, MaxLineBytes: 4096}, nil)
+	output, err := service.Tail(context.Background(), TailInput{File: "pss_item.stdout.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Files) != 1 || !strings.HasSuffix(output.Files[0].File, "pss_item.stdout.log") {
+		t.Fatalf("files = %#v", output.Files)
+	}
+	if len(output.Files[0].Lines) != 2 || output.Files[0].Lines[0] != "password=[REDACTED]" {
+		t.Fatalf("lines = %#v", output.Files[0].Lines)
+	}
+}
+
+func TestTailByFileRejectsEscapesAndSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "escape.link")); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(Config{LogFilesRoot: dir}, nil)
+	for _, name := range []string{"../outside.log", "a/b.log", "..", ".", "escape.link", "missing.log"} {
+		if _, err := service.Tail(context.Background(), TailInput{File: name}); err == nil {
+			t.Fatalf("file %q unexpectedly accepted", name)
+		}
+	}
+}
+
+func TestTailSourceAndFileAreMutuallyExclusive(t *testing.T) {
+	service := NewService(Config{LogFilesRoot: t.TempDir(), Sources: []Source{{Name: "a", Patterns: []string{"/log/a.log"}}}}, nil)
+	if _, err := service.Tail(context.Background(), TailInput{Source: "a", File: "a.log"}); err == nil {
+		t.Fatal("source and file combination unexpectedly accepted")
+	}
+}
+
+func TestTailByFileRequiresRoot(t *testing.T) {
+	service := NewService(Config{Sources: []Source{{Name: "a", Patterns: []string{"/log/a.log"}}}}, nil)
+	if _, err := service.Tail(context.Background(), TailInput{File: "a.log"}); err == nil {
+		t.Fatal("file tail without log_files_root unexpectedly accepted")
 	}
 }

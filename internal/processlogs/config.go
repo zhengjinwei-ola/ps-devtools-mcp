@@ -24,6 +24,9 @@ type Config struct {
 	Sources      []Source `json:"sources"`
 	MaxLines     int      `json:"max_lines,omitempty"`
 	MaxLineBytes int      `json:"max_line_bytes,omitempty"`
+	// LogFilesRoot 是可选的日志根目录。配置后允许按根目录内的裸文件名
+	// 列举与取尾部；路径仍然只来自服务端配置，调用方不能传入任意路径。
+	LogFilesRoot string `json:"log_files_root,omitempty"`
 }
 
 // LoadConfig 读取进程日志白名单配置。文件路径与 glob 只来自服务端配置，
@@ -64,6 +67,9 @@ func LoadConfig(path string) (Config, error) {
 				return Config{}, fmt.Errorf("process log source %q pattern must be an absolute path: %q", name, pattern)
 			}
 		}
+	}
+	if config.LogFilesRoot != "" && !strings.HasPrefix(config.LogFilesRoot, "/") {
+		return Config{}, fmt.Errorf("log_files_root must be an absolute path: %q", config.LogFilesRoot)
 	}
 	return config, nil
 }

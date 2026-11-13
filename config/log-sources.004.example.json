@@ -15,6 +15,13 @@
       ]
     },
     {
+      "name": "legacy-item",
+      "patterns": [
+        "/home/ecs-user/log/pss_item.stdout.log*",
+        "/home/ecs-user/log/pss_item.stderr.log*"
+      ]
+    },
+    {
       "name": "legacy-http-gateway",
       "patterns": [
         "/home/ecs-user/log/http-gateway.stdout.log*",

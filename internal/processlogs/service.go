@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/olaola-chat/ps-devtools-mcp/internal/redact"
@@ -20,11 +21,31 @@ import (
 const (
 	defaultLines      = 100
 	maxFilesPerSource = 16
+	defaultListLimit  = 200
+	maxListFiles      = 500
 )
 
 type TailInput struct {
-	Source string `json:"source" jsonschema:"Process log source name (Supervisor process name) from the server-side allowlist."`
+	Source string `json:"source,omitempty" jsonschema:"Process log source name (Supervisor process name) from the server-side allowlist. Required unless file is set."`
 	Lines  int    `json:"lines,omitempty" jsonschema:"Tail lines per file; zero uses 100, capped at the configured max_lines."`
+	File   string `json:"file,omitempty" jsonschema:"Bare file name inside the configured log_files_root (no path separators). Mutually exclusive with source."`
+}
+
+type ListInput struct {
+	Limit int `json:"limit,omitempty" jsonschema:"Maximum files to return; zero uses 200, capped at 500. Files are ordered by most recent modification."`
+}
+
+type LogFileInfo struct {
+	Name       string `json:"name"`
+	SizeBytes  int64  `json:"size_bytes"`
+	ModifiedAt string `json:"modified_at"`
+}
+
+type ListOutput struct {
+	Root      string        `json:"root"`
+	Files     []LogFileInfo `json:"files"`
+	Total     int           `json:"total"`
+	Truncated bool          `json:"truncated"`
 }
 
 type FileTail struct {
@@ -41,6 +62,7 @@ type Service struct {
 	sources      map[string]Source
 	maxLines     int
 	maxLineBytes int
+	logFilesRoot string
 	logger       *log.Logger
 }
 
@@ -50,7 +72,22 @@ func NewService(config Config, logger *log.Logger) *Service {
 	for _, source := range config.Sources {
 		sources[strings.TrimSpace(source.Name)] = source
 	}
-	return &Service{sources: sources, maxLines: config.MaxLines, maxLineBytes: config.MaxLineBytes, logger: logger}
+	return &Service{
+		sources:      sources,
+		maxLines:     config.MaxLines,
+		maxLineBytes: config.MaxLineBytes,
+		logFilesRoot: cleanLogFilesRoot(config.LogFilesRoot),
+		logger:       logger,
+	}
+}
+
+// cleanLogFilesRoot 规整日志根目录；未配置时保持为空，避免 Clean 把空串
+// 变成 "." 导致列表落在服务进程的工作目录上。
+func cleanLogFilesRoot(root string) string {
+	if root == "" {
+		return ""
+	}
+	return filepath.Clean(root)
 }
 
 type Unavailable struct{}
@@ -59,20 +96,39 @@ func (Unavailable) Tail(context.Context, TailInput) (TailOutput, error) {
 	return TailOutput{}, fmt.Errorf("process log tailing is not configured; set PS_MCP_PROCESS_LOGS_CONFIG")
 }
 
-func (s *Service) Tail(_ context.Context, input TailInput) (TailOutput, error) {
-	source, ok := s.sources[strings.TrimSpace(input.Source)]
-	if !ok {
-		return TailOutput{}, fmt.Errorf("unknown process log source %q", input.Source)
-	}
-	lines := input.Lines
+func (Unavailable) List(context.Context, ListInput) (ListOutput, error) {
+	return ListOutput{}, fmt.Errorf("log file listing is not configured; set PS_MCP_PROCESS_LOGS_CONFIG with log_files_root")
+}
+
+// resolveTailLines 校验并收敛尾部行数上限。
+func resolveTailLines(input int, maxLines int) (int, error) {
+	lines := input
 	if lines == 0 {
 		lines = defaultLines
 	}
 	if lines < 1 {
-		return TailOutput{}, fmt.Errorf("lines must be at least 1")
+		return 0, fmt.Errorf("lines must be at least 1")
 	}
-	if lines > s.maxLines {
-		lines = s.maxLines
+	if lines > maxLines {
+		lines = maxLines
+	}
+	return lines, nil
+}
+
+func (s *Service) Tail(_ context.Context, input TailInput) (TailOutput, error) {
+	lines, err := resolveTailLines(input.Lines, s.maxLines)
+	if err != nil {
+		return TailOutput{}, err
+	}
+	if file := strings.TrimSpace(input.File); file != "" {
+		if strings.TrimSpace(input.Source) != "" {
+			return TailOutput{}, fmt.Errorf("source and file are mutually exclusive")
+		}
+		return s.tailByName(file, lines)
+	}
+	source, ok := s.sources[strings.TrimSpace(input.Source)]
+	if !ok {
+		return TailOutput{}, fmt.Errorf("unknown process log source %q", input.Source)
 	}
 
 	files := make([]string, 0, len(source.Patterns))
@@ -110,6 +166,95 @@ func (s *Service) Tail(_ context.Context, input TailInput) (TailOutput, error) {
 		output.Files = append(output.Files, FileTail{File: file, Lines: tail})
 	}
 	return output, nil
+}
+
+// List 枚举 log_files_root 下的普通日志文件，按修改时间倒序返回有界窗口。
+// 只读目录一层且跳过符号链接，避免目录逃逸；结果仅含文件名与元数据。
+func (s *Service) List(_ context.Context, input ListInput) (ListOutput, error) {
+	if s.logFilesRoot == "" {
+		return ListOutput{}, fmt.Errorf("log file listing is not configured; set log_files_root in the process logs config")
+	}
+	limit := input.Limit
+	if limit == 0 {
+		limit = defaultListLimit
+	}
+	if limit < 1 {
+		return ListOutput{}, fmt.Errorf("limit must be at least 1")
+	}
+	if limit > maxListFiles {
+		limit = maxListFiles
+	}
+
+	entries, err := os.ReadDir(s.logFilesRoot)
+	if err != nil {
+		return ListOutput{}, fmt.Errorf("read log root %q: %w", s.logFilesRoot, err)
+	}
+	type listedFile struct {
+		info LogFileInfo
+		mod  time.Time
+	}
+	files := make([]listedFile, 0, len(entries))
+	for _, entry := range entries {
+		// entry.Info 走 lstat：符号链接不是普通文件，直接跳过，杜绝根目录逃逸。
+		info, err := entry.Info()
+		if err != nil {
+			// 并发清理日志时条目可能消失，跳过而不是让整个列表失败。
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		mod := info.ModTime()
+		files = append(files, listedFile{
+			info: LogFileInfo{
+				Name:       entry.Name(),
+				SizeBytes:  info.Size(),
+				ModifiedAt: mod.UTC().Format(time.RFC3339),
+			},
+			mod: mod,
+		})
+	}
+	total := len(files)
+	// 用原始 ModTime 排序：RFC3339 只有秒级精度，会丢失亚秒顺序。
+	sort.Slice(files, func(i, j int) bool {
+		if !files[i].mod.Equal(files[j].mod) {
+			return files[i].mod.After(files[j].mod)
+		}
+		return files[i].info.Name < files[j].info.Name
+	})
+	truncated := total > limit
+	if truncated {
+		files = files[:limit]
+	}
+	output := make([]LogFileInfo, len(files))
+	for i, file := range files {
+		output[i] = file.info
+	}
+	return ListOutput{Root: s.logFilesRoot, Files: output, Total: total, Truncated: truncated}, nil
+}
+
+// tailByName 按裸文件名读取 log_files_root 内的日志尾部。名字不允许包含
+// 路径分隔符，并用 lstat 校验目标必须是普通文件，防止符号链接与目录逃逸。
+func (s *Service) tailByName(name string, lines int) (TailOutput, error) {
+	if s.logFilesRoot == "" {
+		return TailOutput{}, fmt.Errorf("tail by file requires log_files_root in the process logs config")
+	}
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
+		return TailOutput{}, fmt.Errorf("file must be a bare file name inside the configured log root")
+	}
+	path := filepath.Join(s.logFilesRoot, name)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return TailOutput{}, fmt.Errorf("stat log file %q: %w", name, err)
+	}
+	if !info.Mode().IsRegular() {
+		return TailOutput{}, fmt.Errorf("log file %q is not a regular file", name)
+	}
+	tail, err := tailFile(path, lines, s.maxLineBytes)
+	if err != nil {
+		return TailOutput{Files: []FileTail{{File: path, Error: err.Error()}}}, nil
+	}
+	return TailOutput{Files: []FileTail{{File: path, Lines: tail}}}, nil
 }
 
 // tailFile 从文件尾部读取最后 lines 行，每行按 maxLineBytes UTF-8 安全截断

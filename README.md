@@ -13,13 +13,14 @@
 - `get_recent_deployments`：查看最近 50 条结构化部署记录；配置 `PS_MCP_DEPLOY_HISTORY_PATH` 后历史落盘，MCP 进程重启仍可查询；
 - `get_test_process_status` / `restart_test_process`：查询或重启白名单 Supervisor 进程。
 - `get_mcp_info`：查看 MCP 自身版本、构建 revision、传输方式、监听地址、PID 与运行时长；
-- `tail_test_process_logs`：读取白名单 Supervisor 进程 stdout/stderr 日志的尾部若干行（每行截断并脱敏）。
+- `tail_test_process_logs`：读取白名单 Supervisor 进程 stdout/stderr 日志的尾部若干行（每行截断并脱敏）；也可传入服务端配置的 `log_files_root` 内的裸文件名。
+- `list_test_log_files`：列举服务端配置的 `log_files_root` 下的普通日志文件（只读元数据，按修改时间倒序，跳过符号链接）。
 - `list_testbot_endpoints` / `call_testbot_api`：自动登录配置的测试用户并调用预登记用户接口。
 - `call_test_readonly_api`：从 004 发起任意 HTTP/HTTPS 请求，支持自定义 URL、方法、参数、Header 和请求体。
 
 部署脚本成功但部署后健康探针失败时，任务终态为 `deployed_unhealthy`（不自动回滚）；探针按 `PS_MCP_DEPLOY_SMOKE_CONFIG` 配置（见 `config/deploy-smoke.example.json`），未配置的服务保持原行为。
 
-服务不提供 Shell 或任意文件路径。`call_test_readonly_api` 是仅供已认证使用者调试测试环境的通用 HTTP 客户端，可访问 004 能够连接的任意 HTTP/HTTPS 地址。`tail_test_process_logs` 是唯一的文件读取能力，文件路径与 glob 只来自服务端白名单配置（`PS_MCP_PROCESS_LOGS_CONFIG`，见 `config/process-logs.004.example.json`），不接受调用方传入路径。部署与重启工具只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。异步任务脱离单次 HTTP 请求运行，同一服务只允许一个任务。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
+服务不提供 Shell 或任意文件路径。`call_test_readonly_api` 是仅供已认证使用者调试测试环境的通用 HTTP 客户端，可访问 004 能够连接的任意 HTTP/HTTPS 地址。日志文件读取能力只有 `tail_test_process_logs` 与 `list_test_log_files`：路径与 glob 只来自服务端白名单配置（`PS_MCP_PROCESS_LOGS_CONFIG`，见 `config/process-logs.004.example.json`），不接受调用方传入路径；按文件名取尾部时也只允许 `log_files_root` 内不含路径分隔符的裸文件名（lstat 校验为普通文件，符号链接与目录一律拒绝），仍不开放 `/home/ecs-user/log/*.log` 这种任意路径读取。部署与重启工具只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。异步任务脱离单次 HTTP 请求运行，同一服务只允许一个任务。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
 
 TestBot 的手机号和密码仅从环境变量读取，业务 Token 只缓存在进程内存。接口必须在
 `config/testbot.test.json` 中预登记；副作用接口还要求 `confirm_side_effect=true`。

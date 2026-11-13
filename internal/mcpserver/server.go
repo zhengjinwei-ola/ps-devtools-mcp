@@ -78,6 +78,7 @@ type mcpInfoService interface {
 
 type processLogService interface {
 	Tail(context.Context, processlogs.TailInput) (processlogs.TailOutput, error)
+	List(context.Context, processlogs.ListInput) (processlogs.ListOutput, error)
 }
 
 type Services struct {
@@ -263,8 +264,16 @@ func New(services Services) *mcp.Server {
 		return nil, output, err
 	})
 	mcp.AddTool(server, &mcp.Tool{
+		Name: "list_test_log_files", Description: "List log files under the server-configured log root (log_files_root) ordered by most recent modification. " +
+			"Read-only metadata only; the root is fixed server-side and symlinks are skipped.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input processlogs.ListInput) (*mcp.CallToolResult, processlogs.ListOutput, error) {
+		output, err := services.ProcessLogs.List(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
 		Name: "tail_test_process_logs", Description: "Tail the last lines of allowlisted PSL 004 Supervisor process stdout/stderr log files. " +
-			"Sources and file paths are configured server-side; lines are length-bounded and redacted.",
+			"Pass a source from the server-side allowlist, or a bare file name inside the configured log_files_root. " +
+			"Paths are configured server-side; lines are length-bounded and redacted.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input processlogs.TailInput) (*mcp.CallToolResult, processlogs.TailOutput, error) {
 		output, err := services.ProcessLogs.Tail(ctx, input)
 		return nil, output, err

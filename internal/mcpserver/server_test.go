@@ -34,6 +34,10 @@ func (stubProcessLogService) Tail(context.Context, processlogs.TailInput) (proce
 	return processlogs.TailOutput{Files: []processlogs.FileTail{{File: "/home/ecs-user/log/x.stdout.log", Lines: []string{"ok"}}}}, nil
 }
 
+func (stubProcessLogService) List(context.Context, processlogs.ListInput) (processlogs.ListOutput, error) {
+	return processlogs.ListOutput{Root: "/home/ecs-user/log", Files: []processlogs.LogFileInfo{{Name: "x.stdout.log"}}, Total: 1}, nil
+}
+
 func (stubDeployService) ListServices(context.Context, testdeploy.ListServicesInput) (testdeploy.ListServicesOutput, error) {
 	return testdeploy.ListServicesOutput{}, nil
 }
