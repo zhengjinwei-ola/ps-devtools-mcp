@@ -89,7 +89,7 @@ assert_eq "ps-devtools-mcp" "$(printf '%s\n' "${processes[@]}")"
 service="oversea-server"
 configure_service
 assert_eq "/home/ecs-user/gitroot/psl-be-oversea-server" "$repository"
-assert_eq "/home/ecs-user/webroot/oversea-server" "$target_dir"
+assert_eq "/home/ecs-user/webroot/psl-be-oversea-server" "$target_dir"
 assert_eq "" "$branch"
 assert_eq "xs.admin" "$(map_selector xs.admin)"
 assert_eq "xs.room.proc" "$(map_selector xs.room.proc)"
@@ -119,6 +119,29 @@ if (map_selector 'http' >/dev/null 2>&1); then
 	printf 'bare selector without xs. prefix was unexpectedly accepted for oversea\n' >&2
 	exit 1
 fi
+
+# run_sea_command deploys by git pull in the webroot repository; a missing
+# repository must abort before any worker group restart.
+tmpdir=$(mktemp -d)
+(
+	target_dir="$tmpdir/missing"
+	if (run_sea_command >/dev/null 2>&1); then
+		printf 'run_sea_command unexpectedly succeeded without a webroot repository\n' >&2
+		exit 1
+	fi
+)
+mkdir -p "$tmpdir/.git"
+git() {
+	git_pull_args="$*"
+}
+(
+	target_dir="$tmpdir"
+	git_pull_args=""
+	run_sea_command >/dev/null
+	assert_eq "-C $tmpdir pull" "$git_pull_args"
+)
+rm -rf "$tmpdir"
+unset -f git
 
 (
 	action=""

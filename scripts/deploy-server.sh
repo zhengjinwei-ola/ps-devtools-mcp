@@ -91,10 +91,10 @@ configure_service() {
 			asset_directories=()
 			;;
 		oversea-server)
-			# PHP service: the fixed `sea` command syncs webroot code; there is no
-			# build, backup or artifact step. branch is unused (sea owns the source).
+			# PHP service: `git pull` in the webroot repository syncs the code; there
+			# is no build, backup or artifact step. branch is unused (pull owns the source).
 			repository="$GIT_ROOT/psl-be-oversea-server"
-			target_dir="$WEB_ROOT/oversea-server"
+			target_dir="$WEB_ROOT/psl-be-oversea-server"
 			branch=""
 			artifact_names=()
 			asset_directories=()
@@ -427,38 +427,17 @@ build_source() {
 	esac
 }
 
-# The oversea-server PHP service deploys by running the fixed `sea` command on
-# this host; it syncs the webroot code itself and never touches other services.
-readonly SEA_CANDIDATE_PATHS=(
-	"/home/ecs-user/bin/sea"
-	"/home/ecs-user/sh/sea"
-	"/usr/local/bin/sea"
-)
-
-resolve_sea_command() {
-	local candidate
-
-	candidate=$(command -v sea 2>/dev/null || true)
-	[[ -n "$candidate" ]] && {
-		printf '%s\n' "$candidate"
-		return 0
-	}
-	for candidate in "${SEA_CANDIDATE_PATHS[@]}"; do
-		if [[ -x "$candidate" ]]; then
-			printf '%s\n' "$candidate"
-			return 0
-		fi
-	done
-	return 1
-}
-
+# The oversea-server PHP service deploys by running `git pull` in its webroot
+# repository, matching the operator alias `sea` (aliases are invisible to
+# non-interactive bash, so the equivalent git command runs directly). It syncs
+# the webroot code itself and never touches other services.
 run_sea_command() {
-	local sea_command
-
-	sea_command=$(resolve_sea_command) ||
-		die "the sea command was not found on the 004 test host; oversea-server cannot deploy"
-	log "syncing oversea-server PHP code via: $sea_command"
-	"$sea_command"
+	if [[ ! -d "$target_dir/.git" ]]; then
+		die "oversea-server webroot repository not found at $target_dir"
+	fi
+	log "syncing oversea-server PHP code via git pull in $target_dir"
+	git -C "$target_dir" pull ||
+		die "git pull failed in $target_dir; oversea-server webroot was not updated"
 	log "oversea-server code synced"
 }
 
@@ -614,7 +593,7 @@ print_plan() {
 	log "service: $service"
 	log "environment: 004 test only"
 	if [[ "$service" == "oversea-server" ]]; then
-		log "source: sea command (PHP webroot sync)"
+		log "source: git pull (PHP webroot sync)"
 	else
 		log "source: origin/$branch"
 	fi
@@ -663,8 +642,9 @@ main() {
 	exec 9>"/tmp/deploy-server.$service.lock"
 	flock -n 9 || die "another deployment is running for $service"
 	if [[ "$service" == "oversea-server" ]]; then
-		# PHP service: `sea` syncs the webroot code; selected worker groups are
-		# then restarted to pick it up. No build, backup or rollback applies.
+		# PHP service: git pull syncs the webroot code; selected worker groups are
+		# then restarted to pick it up. No build, backup or rollback applies. A failed
+		# pull leaves the webroot untouched; worker groups are not restarted.
 		run_sea_command
 		log "phase=deploying"
 		restart_and_verify
