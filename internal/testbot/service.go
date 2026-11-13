@@ -14,11 +14,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/olaola-chat/ps-devtools-mcp/internal/redact"
 )
 
 const maxRequestBodyBytes = 64 << 10
@@ -26,8 +27,6 @@ const maxRequestBodyBytes = 64 << 10
 const legacyFirewallSignSuffix = "!rilegoule#"
 
 var legacyFirewallSignFields = []string{"_abi", "_index", "_ipv", "_model", "_platform", "_timestamp", "format", "package"}
-
-var textSecrets = regexp.MustCompile(`(?i)((?:authorization|user-token|access_?token|refresh_?token|password|passwd|secret|cookie|session)["']?\s*[:=]\s*["']?)[^"'\s,;]+`)
 
 type Credentials struct {
 	Area     string
@@ -198,7 +197,7 @@ func (s *Service) callWithToken(ctx context.Context, endpoint Endpoint, input Ca
 		return CallOutput{}, fmt.Errorf("read testbot endpoint response: %w", err)
 	}
 	output := CallOutput{Endpoint: endpoint.Name, RequestID: requestID, StatusCode: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), ElapsedMS: time.Since(started).Milliseconds(), Truncated: truncated}
-	output.Body = redactResponse(data, output.ContentType, truncated)
+	output.Body = redact.Response(data, output.ContentType, truncated)
 	if s.logger != nil {
 		s.logger.Printf("tool=testbot action=call endpoint=%q method=%s side_effect=%t status=%d request_id=%q token_fingerprint=%s bytes=%d truncated=%t duration_ms=%d", endpoint.Name, endpoint.Method, endpoint.SideEffect, resp.StatusCode, requestID, tokenFingerprint(token), len(data), truncated, output.ElapsedMS)
 	}
@@ -345,33 +344,4 @@ func readLimitedWithTruncation(reader io.Reader, limit int64) ([]byte, bool, err
 		data = data[:limit]
 	}
 	return data, truncated, nil
-}
-
-func redactResponse(data []byte, contentType string, truncated bool) any {
-	if strings.Contains(strings.ToLower(contentType), "json") && !truncated {
-		var value any
-		if json.Unmarshal(data, &value) == nil {
-			return redactJSON(value)
-		}
-	}
-	return textSecrets.ReplaceAllString(string(data), "${1}[REDACTED]")
-}
-
-func redactJSON(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, item := range typed {
-			lower := strings.ToLower(key)
-			if strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "cookie") || strings.Contains(lower, "session") || strings.Contains(lower, "mobile") || strings.Contains(lower, "phone") {
-				typed[key] = "[REDACTED]"
-				continue
-			}
-			typed[key] = redactJSON(item)
-		}
-	case []any:
-		for index := range typed {
-			typed[index] = redactJSON(typed[index])
-		}
-	}
-	return value
 }

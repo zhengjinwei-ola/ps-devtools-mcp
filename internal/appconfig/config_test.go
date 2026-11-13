@@ -1,6 +1,9 @@
 package appconfig
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseDefaultsToStdio(t *testing.T) {
 	config, err := Parse(nil, func(string) string { return "" })
@@ -176,5 +179,19 @@ func TestParseSlackDeployWebhook(t *testing.T) {
 	}
 	if config.SlackDeployWebhookURL != "https://hooks.slack.com/services/T/B/S" {
 		t.Fatalf("webhook URL = %q", config.SlackDeployWebhookURL)
+	}
+}
+
+func TestParseRejectsNonIntegerEnvironment(t *testing.T) {
+	for _, key := range []string{"PS_MCP_MAX_CONCURRENT", "PS_TEST_DB_PORT", "PS_TEST_REDIS_DATABASE"} {
+		_, err := Parse(nil, func(name string) string {
+			if name == key {
+				return "not-a-number"
+			}
+			return ""
+		})
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Fatalf("key %s: err = %v, want error naming the variable", key, err)
+		}
 	}
 }

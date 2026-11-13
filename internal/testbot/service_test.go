@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/olaola-chat/ps-devtools-mcp/internal/redact"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -155,7 +157,7 @@ func TestServiceSignsLegacyFirewallRequests(t *testing.T) {
 }
 
 func TestRedactResponseProtectsSecretsInTruncatedJSON(t *testing.T) {
-	body := redactResponse([]byte(`{"access_token":"secret","value":"partial`), "application/json", true).(string)
+	body := redact.Response([]byte(`{"access_token":"secret","value":"partial`), "application/json", true).(string)
 	if strings.Contains(body, "secret") || !strings.Contains(body, "[REDACTED]") {
 		t.Fatalf("body = %q", body)
 	}

@@ -8,6 +8,7 @@
 - `get_test_user_snapshot`：读取固定的非敏感用户、VIP 与背包诊断字段。
 - `list_test_deploy_services` / `list_test_deploy_processes` / `plan_test_deployment`：查看白名单部署目标；
 - `deploy_test_service`：兼容保留的同步部署入口；
+- `deploy oversea-server`：PHP 服务，部署 = 运行 004 固定 `sea` 命令同步代码后重启选中的 `xs.*` 进程组，无构建与备份回滚；
 - `start_test_deployment` / `get_test_deployment_status` / `get_test_deployment_logs` / `cancel_test_deployment`：异步启动、查询或取消部署任务；
 - `get_recent_deployments`：查看当前 MCP 进程内最近 50 条结构化部署记录；
 - `get_test_process_status` / `restart_test_process`：查询或重启白名单 Supervisor 进程。

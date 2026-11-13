@@ -9,14 +9,13 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/olaola-chat/ps-devtools-mcp/internal/redact"
 )
 
 const maxRequestBodyBytes = 64 << 10
-
-var textSecrets = regexp.MustCompile(`(?i)((?:authorization|access_?token|refresh_?token|password|passwd|secret|cookie|session)\s*[:=]\s*)[^\s,;]+`)
 
 type Service struct {
 	client           *http.Client
@@ -102,16 +101,7 @@ func (s *Service) Call(ctx context.Context, input CallInput) (CallOutput, error)
 		URL: parsed.String(), Method: method, StatusCode: resp.StatusCode,
 		ContentType: resp.Header.Get("Content-Type"), ElapsedMS: time.Since(started).Milliseconds(), Truncated: truncated,
 	}
-	if strings.Contains(strings.ToLower(output.ContentType), "json") && !truncated {
-		var decoded any
-		if json.Unmarshal(data, &decoded) == nil {
-			output.Body = redactJSON(decoded)
-		} else {
-			output.Body = textSecrets.ReplaceAllString(string(data), `${1}[REDACTED]`)
-		}
-	} else {
-		output.Body = textSecrets.ReplaceAllString(string(data), `${1}[REDACTED]`)
-	}
+	output.Body = redact.Response(data, output.ContentType, truncated)
 	if s.logger != nil {
 		s.logger.Printf("tool=call_test_readonly_api url=%q method=%s status=%d bytes=%d truncated=%t duration_ms=%d",
 			parsed.String(), method, resp.StatusCode, len(data), truncated, output.ElapsedMS)
@@ -126,23 +116,4 @@ func validMethod(method string) bool {
 		}
 	}
 	return method != ""
-}
-
-func redactJSON(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, item := range typed {
-			lower := strings.ToLower(key)
-			if strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "cookie") || strings.Contains(lower, "session") || strings.Contains(lower, "authorization") || strings.Contains(lower, "mobile") || strings.Contains(lower, "phone") {
-				typed[key] = "[REDACTED]"
-			} else {
-				typed[key] = redactJSON(item)
-			}
-		}
-	case []any:
-		for index := range typed {
-			typed[index] = redactJSON(typed[index])
-		}
-	}
-	return value
 }

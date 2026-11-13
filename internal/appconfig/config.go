@@ -41,20 +41,32 @@ type Config struct {
 }
 
 func Parse(args []string, getenv func(string) string) (Config, error) {
+	maxConcurrent, err := envIntOrDefault(getenv, "PS_MCP_MAX_CONCURRENT", 16)
+	if err != nil {
+		return Config{}, err
+	}
+	testDBPort, err := envIntOrDefault(getenv, "PS_TEST_DB_PORT", 3306)
+	if err != nil {
+		return Config{}, err
+	}
+	testRedisDatabase, err := envIntOrDefault(getenv, "PS_TEST_REDIS_DATABASE", 0)
+	if err != nil {
+		return Config{}, err
+	}
 	config := Config{
 		Transport:             envOrDefault(getenv, "PS_MCP_TRANSPORT", TransportStdio),
 		ListenAddress:         envOrDefault(getenv, "PS_MCP_LISTEN_ADDR", "127.0.0.1:8080"),
 		AuthToken:             strings.TrimSpace(getenv("PS_MCP_AUTH_TOKEN")),
-		MaxConcurrent:         envIntOrDefault(getenv, "PS_MCP_MAX_CONCURRENT", 16),
+		MaxConcurrent:         maxConcurrent,
 		TestDBHost:            strings.TrimSpace(getenv("PS_TEST_DB_HOST")),
-		TestDBPort:            envIntOrDefault(getenv, "PS_TEST_DB_PORT", 3306),
+		TestDBPort:            testDBPort,
 		TestDBUser:            strings.TrimSpace(getenv("PS_TEST_DB_USER")),
 		TestDBPassword:        getenv("PS_TEST_DB_PASSWORD"),
 		XianshiDatabase:       envOrDefault(getenv, "PS_TEST_DB_XIANSHI_DATABASE", "xianshi"),
 		ConfigDatabase:        envOrDefault(getenv, "PS_TEST_DB_CONFIG_DATABASE", "config"),
 		TestRedisAddress:      strings.TrimSpace(getenv("PS_TEST_REDIS_ADDRESS")),
 		TestRedisPassword:     getenv("PS_TEST_REDIS_PASSWORD"),
-		TestRedisDatabase:     envIntOrDefault(getenv, "PS_TEST_REDIS_DATABASE", 0),
+		TestRedisDatabase:     testRedisDatabase,
 		LogMCPCommand:         strings.TrimSpace(getenv("PS_LOG_MCP_COMMAND")),
 		ReadOnlyAPIConfig:     strings.TrimSpace(getenv("PS_MCP_READONLY_API_CONFIG")),
 		TestBotConfig:         strings.TrimSpace(getenv("PS_MCP_TESTBOT_CONFIG")),
@@ -185,14 +197,14 @@ func envOrDefault(getenv func(string) string, key, fallback string) string {
 	return fallback
 }
 
-func envIntOrDefault(getenv func(string) string, key string, fallback int) int {
+func envIntOrDefault(getenv func(string) string, key string, fallback int) (int, error) {
 	value := strings.TrimSpace(getenv(key))
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
-	return parsed
+	return parsed, nil
 }

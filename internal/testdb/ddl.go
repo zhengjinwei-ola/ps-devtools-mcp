@@ -17,13 +17,17 @@ import (
 //   - 禁止危险关键字（DROP/DELETE/UPDATE/INSERT/RENAME/MODIFY/CHANGE 等），防拼夹带
 //   - 单条语句、去注释、去字符串字面量后校验，防注释/字面量内夹带
 var (
-	ddlForbidden = regexp.MustCompile(`(?i)\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|RENAME|MODIFY|CHANGE|GRANT|REVOKE|CREATE\s+(DATABASE|INDEX|VIEW|TRIGGER|PROCEDURE|FUNCTION|USER)|SET|USE|LOCK|UNLOCK|CALL|ALTER\s+TABLE\s+\S+\s+(DROP|RENAME|MODIFY|CHANGE|CONVERT|ENGINE|AUTO_INCREMENT|DEFAULT|COMMENT\b\s*(=|\s)))`)
+	// SELECT 单列拒绝，堵死 CREATE TABLE ... (列定义) SELECT 拷贝数据建表；
+	// ADD 之后只允许 COLUMN，ADD INDEX/KEY/CONSTRAINT/PARTITION 等一律拒绝。
+	ddlForbidden = regexp.MustCompile(`(?i)\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|RENAME|MODIFY|CHANGE|GRANT|REVOKE|SELECT|CREATE\s+(DATABASE|INDEX|VIEW|TRIGGER|PROCEDURE|FUNCTION|USER)|SET|USE|LOCK|UNLOCK|CALL|ADD\s+(INDEX|KEY|PRIMARY|UNIQUE|FOREIGN|FULLTEXT|SPATIAL|CONSTRAINT|PARTITION|CHECK)|ALTER\s+TABLE\s+\S+\s+(DROP|RENAME|MODIFY|CHANGE|CONVERT|ENGINE|AUTO_INCREMENT|DEFAULT|COMMENT\b\s*(=|\s)))`)
 
 	// 注意：ddlNormalize 会把反引号标识符/字符串字面量替换为空格，因此匹配的是"去标识符后"的骨架：
 	//   CREATE TABLE (IF NOT EXISTS)? <列定义>    /    ALTER TABLE <表名> ADD (COLUMN)? <列定义>
 	// 表名已被剥掉，所以 ALTER 分支用"TABLE 后跳过一段非保留字表名再遇到 ADD"的结构匹配。
 	ddlCreateTable = regexp.MustCompile(`(?i)^CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?[^(]*\(`)
-	ddlAddColumn   = regexp.MustCompile(`(?i)^ALTER\s+TABLE\s+[^(]*?\bADD\s+(COLUMN\s+)?[^;]+$`)
+	// ADD 之后禁止逗号：多子句（如 "ADD COLUMN a INT, DROP COLUMN b"）与多列
+	// "ADD COLUMN (a INT, b INT)" 在结构上被拒，而不依赖关键字逐个拦截。
+	ddlAddColumn = regexp.MustCompile(`(?i)^ALTER\s+TABLE\s+\S*\s*ADD\s+(COLUMN\s+)?[^,;]+$`)
 )
 
 // ExecDDLInput 受限 DDL 输入：仅 engine=1（xianshi）

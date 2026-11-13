@@ -216,3 +216,41 @@ func TestListProcessesParsesLines(t *testing.T) {
 		t.Fatalf("processes = %#v, want %#v", output.Processes, want)
 	}
 }
+
+func TestValidateServiceAllowlist(t *testing.T) {
+	for _, service := range []string{"psl-be-partystar", "psl-be-room", "ps-devtools-mcp", "oversea-server"} {
+		if err := validateService(service); err != nil {
+			t.Fatalf("validateService(%q) = %v, want nil", service, err)
+		}
+	}
+	for _, service := range []string{"", "unknown-service", "psl-be-oversea-server"} {
+		if err := validateService(service); err == nil {
+			t.Fatalf("validateService(%q) unexpectedly accepted", service)
+		}
+	}
+}
+
+func TestValidateDeploymentOverseaSelectors(t *testing.T) {
+	for _, selector := range []string{"xs.admin", "xs.cmd", "xs.room.proc"} {
+		input := DeploymentInput{Service: "oversea-server", Processes: []string{selector}}
+		if err := validateDeployment(input); err != nil {
+			t.Fatalf("selector %q was rejected: %v", selector, err)
+		}
+	}
+	// Service-specific selector mapping (e.g. bare http/rpc/cmd.* for oversea)
+	// is enforced by deploy-server.sh map_selector; this layer only gates the
+	// generic selector shape.
+	for _, selector := range []string{"xs../../escape", "admin"} {
+		input := DeploymentInput{Service: "oversea-server", Processes: []string{selector}}
+		if err := validateDeployment(input); err == nil {
+			t.Fatalf("selector %q was unexpectedly accepted for oversea-server", selector)
+		}
+	}
+}
+
+func TestValidateDeploymentSelfDeploySelector(t *testing.T) {
+	input := DeploymentInput{Service: "ps-devtools-mcp", Processes: []string{"ps-devtools-mcp"}}
+	if err := validateDeployment(input); err != nil {
+		t.Fatalf("ps-devtools-mcp selector was rejected: %v", err)
+	}
+}

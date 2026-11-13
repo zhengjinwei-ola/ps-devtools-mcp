@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -21,7 +22,7 @@ const (
 	deployPhaseMarker = "[deploy-server] phase=deploying"
 )
 
-var selectorPattern = regexp.MustCompile(`^(?:all|http|rpc|cmd\.[A-Za-z0-9_.-]+|go\.ps_(?:http|rpc|cmd\.[A-Za-z0-9_-]+)|room\.(?:http|rpc|cmd\.[A-Za-z0-9_.-]+)|ps-devtools-mcp)$`)
+var selectorPattern = regexp.MustCompile(`^(?:all|http|rpc|cmd\.[A-Za-z0-9_.-]+|go\.ps_(?:http|rpc|cmd\.[A-Za-z0-9_-]+)|room\.(?:http|rpc|cmd\.[A-Za-z0-9_.-]+)|xs\.[A-Za-z0-9_.-]+|ps-devtools-mcp)$`)
 
 type ListServicesInput struct{}
 type ListServicesOutput struct {
@@ -123,6 +124,11 @@ func (r commandRunner) Run(ctx context.Context, onDeploying func(), args ...stri
 	output := capture.Bytes()
 	if len(output) > maxOutputBytes {
 		output = output[len(output)-maxOutputBytes:]
+		// The cut may start in the middle of a multi-byte character; drop the
+		// leading partial rune so the truncated output stays valid UTF-8.
+		for len(output) > 0 && !utf8.Valid(output) {
+			output = output[1:]
+		}
 	}
 	if err != nil {
 		message := strings.TrimSpace(string(output))
@@ -296,10 +302,11 @@ func (s *Service) runDeploymentCommand(ctx context.Context, action string, input
 }
 
 func validateService(service string) error {
-	if service != "psl-be-partystar" && service != "psl-be-room" && service != "ps-devtools-mcp" {
-		return errors.New("service is not allowlisted")
+	switch service {
+	case "psl-be-partystar", "psl-be-room", "ps-devtools-mcp", "oversea-server":
+		return nil
 	}
-	return nil
+	return errors.New("service is not allowlisted")
 }
 
 func validateDeployment(input DeploymentInput) error {

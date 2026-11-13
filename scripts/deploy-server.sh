@@ -63,7 +63,7 @@ die() {
 }
 
 allowed_services() {
-	printf '%s\n' "psl-be-partystar" "psl-be-room" "ps-devtools-mcp"
+	printf '%s\n' "psl-be-partystar" "psl-be-room" "ps-devtools-mcp" "oversea-server"
 }
 
 configure_service() {
@@ -88,6 +88,15 @@ configure_service() {
 			target_dir="$WEB_ROOT/ps-devtools-mcp"
 			branch="main"
 			artifact_names=(ps-devtools-mcp)
+			asset_directories=()
+			;;
+		oversea-server)
+			# PHP service: the fixed `sea` command syncs webroot code; there is no
+			# build, backup or artifact step. branch is unused (sea owns the source).
+			repository="$GIT_ROOT/psl-be-oversea-server"
+			target_dir="$WEB_ROOT/oversea-server"
+			branch=""
+			artifact_names=()
 			asset_directories=()
 			;;
 		*)
@@ -198,6 +207,18 @@ registered_service_processes() {
 				awk '$1 == "room.http" || $1 == "room.rpc" || $1 ~ /^room\.cmd\./ {print $1}' |
 				sort -u
 			;;
+		ps-devtools-mcp)
+			{ supervisorctl status 2>/dev/null || true; } |
+				awk '$1 == "ps-devtools-mcp" {print $1}' |
+				sort -u
+			;;
+		oversea-server)
+			# Homogeneous groups register members like xs.admin:01; collapse them
+			# to the group name so restart/status can address the whole group.
+			{ supervisorctl status 2>/dev/null || true; } |
+				awk '$1 ~ /^xs\./ {sub(/:.*/, "", $1); print $1}' |
+				sort -u
+			;;
 	esac
 }
 
@@ -231,6 +252,14 @@ map_selector() {
 			suffix=${1#room.}
 			[[ "$suffix" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid room Supervisor process name: $1"
 			printf 'room.%s\n' "$suffix"
+			;;
+		ps-devtools-mcp:ps-devtools-mcp)
+			printf '%s\n' "ps-devtools-mcp"
+			;;
+		oversea-server:xs.*)
+			suffix=${1#xs.}
+			[[ "$suffix" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid oversea Supervisor process group: $1"
+			printf 'xs.%s\n' "$suffix"
 			;;
 		*) die "unsupported process selector for $service: $1" ;;
 	esac
@@ -398,6 +427,41 @@ build_source() {
 	esac
 }
 
+# The oversea-server PHP service deploys by running the fixed `sea` command on
+# this host; it syncs the webroot code itself and never touches other services.
+readonly SEA_CANDIDATE_PATHS=(
+	"/home/ecs-user/bin/sea"
+	"/home/ecs-user/sh/sea"
+	"/usr/local/bin/sea"
+)
+
+resolve_sea_command() {
+	local candidate
+
+	candidate=$(command -v sea 2>/dev/null || true)
+	[[ -n "$candidate" ]] && {
+		printf '%s\n' "$candidate"
+		return 0
+	}
+	for candidate in "${SEA_CANDIDATE_PATHS[@]}"; do
+		if [[ -x "$candidate" ]]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
+
+run_sea_command() {
+	local sea_command
+
+	sea_command=$(resolve_sea_command) ||
+		die "the sea command was not found on the 004 test host; oversea-server cannot deploy"
+	log "syncing oversea-server PHP code via: $sea_command"
+	"$sea_command"
+	log "oversea-server code synced"
+}
+
 prepare_backup() {
 	local name
 
@@ -549,11 +613,19 @@ cleanup() {
 print_plan() {
 	log "service: $service"
 	log "environment: 004 test only"
-	log "source: origin/$branch"
+	if [[ "$service" == "oversea-server" ]]; then
+		log "source: sea command (PHP webroot sync)"
+	else
+		log "source: origin/$branch"
+	fi
 	log "repository: $repository"
 	log "target: $target_dir"
 	log "tests: false"
-	log "backup retention: $keep_backups"
+	if [[ "$service" == "oversea-server" ]]; then
+		log "backup retention: none (PHP service, no artifact backup)"
+	else
+		log "backup retention: $keep_backups"
+	fi
 	printf '[deploy-server] processes:\n'
 	printf '  - %s\n' "${processes[@]}"
 }
@@ -590,6 +662,15 @@ main() {
 
 	exec 9>"/tmp/deploy-server.$service.lock"
 	flock -n 9 || die "another deployment is running for $service"
+	if [[ "$service" == "oversea-server" ]]; then
+		# PHP service: `sea` syncs the webroot code; selected worker groups are
+		# then restarted to pick it up. No build, backup or rollback applies.
+		run_sea_command
+		log "phase=deploying"
+		restart_and_verify
+		log "deployment completed: oversea-server"
+		exit 0
+	fi
 	prepare_source
 	build_source
 	log "phase=deploying"

@@ -234,7 +234,6 @@ func (c *MySQLClient) ExecDDL(ctx context.Context, statement string) (int64, err
 	}
 	defer cancel()
 
-	started := time.Now()
 	result, err := db.ExecContext(queryCtx, statement)
 	if err != nil {
 		return 0, fmt.Errorf("execute ddl: %w", err)
@@ -243,7 +242,6 @@ func (c *MySQLClient) ExecDDL(ctx context.Context, statement string) (int64, err
 	if result != nil {
 		affected, _ = result.RowsAffected()
 	}
-	_ = started
 	return affected, nil
 }
 

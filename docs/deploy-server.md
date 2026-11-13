@@ -68,12 +68,24 @@ ps-devtools-mcp/scripts/deploy-server.sh
 - 精确的 `room.http`、`room.rpc` 或 `room.cmd.<name>`
 - `all`：所有已注册的上述 Room 进程
 
+`oversea-server`（PHP）支持以下选择器：
+
+- `xs.<group>`：Supervisor 进程组名直传，如 `xs.admin`、`xs.cmd`、`xs.room.proc`
+- `all`：所有已注册的 `xs.*` 进程组（多进程组自动收敛为组名）
+
+部署 `oversea-server` 不走 Git worktree、构建、备份和回滚：固定运行 004 上的 `sea` 命令同步 `/home/ecs-user/webroot/oversea-server` 的 PHP 代码，然后重启选中的 `xs.*` 进程组；HTTP 部分由 php-fpm 直接使用新代码，无需重启。`sea` 命令按 `command -v sea` 解析，并回退检查 `/home/ecs-user/bin/sea`、`/home/ecs-user/sh/sea`、`/usr/local/bin/sea`。仅重启不更新代码时使用 `restart` 动作。
+
+`ps-devtools-mcp` 支持以下选择器：
+
+- `ps-devtools-mcp`：自举部署 MCP 服务自身
+- `all`：同上（单一进程）
+
 同一次部署可传多个选择器；每个服务只拉取和编译一次，再统一重启选中的进程。
 
 ## 部署规则
 
 - 只允许在 004 测试机 `192.168.35.221` 运行。
-- 当前白名单包含 `psl-be-partystar` 和 `psl-be-room`。
+- 当前白名单包含 `psl-be-partystar`、`psl-be-room`、`ps-devtools-mcp` 和 `oversea-server`。
 - 固定构建 `origin/dev` 的精确 commit。
 - GitHub HTTPS remote 仅在部署命令内改写为 SSH，并显式使用 004 的 `id_rsa` 部署密钥和 `BatchMode` 完成非交互式拉取，不依赖登录会话的 ssh-agent，也不永久修改仓库 remote。
 - 使用临时 Git worktree，不修改服务器常驻仓库的工作副本。

@@ -109,3 +109,46 @@ func TestValidateDDLSQL_RejectTooLong(t *testing.T) {
 		t.Fatal("overlong statement should be rejected")
 	}
 }
+
+func TestValidateDDLSQL_RejectAddIndex(t *testing.T) {
+	if err := ValidateDDLSQL("ALTER TABLE xs_test ADD INDEX idx_uid (uid)"); err == nil {
+		t.Fatal("ADD INDEX should be rejected")
+	}
+}
+
+func TestValidateDDLSQL_RejectAddPrimaryKey(t *testing.T) {
+	if err := ValidateDDLSQL("ALTER TABLE xs_test ADD PRIMARY KEY (id)"); err == nil {
+		t.Fatal("ADD PRIMARY KEY should be rejected")
+	}
+}
+
+func TestValidateDDLSQL_RejectAddConstraint(t *testing.T) {
+	if err := ValidateDDLSQL("ALTER TABLE xs_test ADD CONSTRAINT fk_uid FOREIGN KEY (uid) REFERENCES xs_user (uid)"); err == nil {
+		t.Fatal("ADD CONSTRAINT should be rejected")
+	}
+}
+
+func TestValidateDDLSQL_RejectCreateTableAsSelect(t *testing.T) {
+	if err := ValidateDDLSQL("CREATE TABLE xs_copy (id INT) SELECT uid FROM xs_user_profile"); err == nil {
+		t.Fatal("CREATE TABLE ... SELECT should be rejected")
+	}
+}
+
+func TestValidateDDLSQL_RejectMultiClauseAlter(t *testing.T) {
+	if err := ValidateDDLSQL("ALTER TABLE xs_test ADD COLUMN a INT, ALGORITHM=INPLACE"); err == nil {
+		t.Fatal("multi-clause ALTER should be rejected")
+	}
+}
+
+func TestValidateDDLSQL_RejectMultiColumnAdd(t *testing.T) {
+	if err := ValidateDDLSQL("ALTER TABLE xs_test ADD COLUMN (a INT, b INT)"); err == nil {
+		t.Fatal("multi-column ADD should be rejected")
+	}
+}
+
+func TestValidateDDLSQL_AlterAddColumnAfterKeyword(t *testing.T) {
+	sql := "ALTER TABLE `xs_bigarea` ADD COLUMN `demo_col` tinyint NOT NULL DEFAULT 0 AFTER `ref_col`"
+	if err := ValidateDDLSQL(sql); err != nil {
+		t.Fatalf("alter add column with AFTER should pass: %v", err)
+	}
+}
