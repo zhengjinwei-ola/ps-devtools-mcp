@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/mcpinfo"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/processlogs"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/redisinspect"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testapi"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testbot"
@@ -16,7 +18,7 @@ import (
 
 const (
 	Name    = "ps-devtools"
-	Version = "v0.3.0"
+	Version = "v0.4.0"
 )
 
 type queryService interface {
@@ -70,6 +72,14 @@ type testDeploymentJobService interface {
 	Cancel(context.Context, testdeploy.DeploymentIDInput) (testdeploy.CancelDeploymentOutput, error)
 }
 
+type mcpInfoService interface {
+	Get(context.Context, mcpinfo.Input) (mcpinfo.Info, error)
+}
+
+type processLogService interface {
+	Tail(context.Context, processlogs.TailInput) (processlogs.TailOutput, error)
+}
+
 type Services struct {
 	DB             queryService
 	Redis          redisQueryService
@@ -80,6 +90,8 @@ type Services struct {
 	TestLogs       testLogService
 	TestDeploy     testDeployService
 	TestDeployJobs testDeploymentJobService
+	MCPInfo        mcpInfoService
+	ProcessLogs    processLogService
 }
 
 func New(services Services) *mcp.Server {
@@ -242,6 +254,19 @@ func New(services Services) *mcp.Server {
 		Name: "get_test_service_runtime", Description: "Inspect allowlisted PSL test service binary build/VCS metadata and non-sensitive configuration values and hashes.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input testlogs.GetRuntimeInput) (*mcp.CallToolResult, testlogs.GetRuntimeOutput, error) {
 		output, err := services.TestLogs.GetRuntime(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "get_mcp_info", Description: "Get this MCP server's own version, build revision, transport, listen address, PID and uptime.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input mcpinfo.Input) (*mcp.CallToolResult, mcpinfo.Info, error) {
+		output, err := services.MCPInfo.Get(ctx, input)
+		return nil, output, err
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "tail_test_process_logs", Description: "Tail the last lines of allowlisted PSL 004 Supervisor process stdout/stderr log files. " +
+			"Sources and file paths are configured server-side; lines are length-bounded and redacted.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input processlogs.TailInput) (*mcp.CallToolResult, processlogs.TailOutput, error) {
+		output, err := services.ProcessLogs.Tail(ctx, input)
 		return nil, output, err
 	})
 	return server

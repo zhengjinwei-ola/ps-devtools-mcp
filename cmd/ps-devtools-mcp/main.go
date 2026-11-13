@@ -6,13 +6,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/appconfig"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/httptransport"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/mcpinfo"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/mcpserver"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/processlogs"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/redisinspect"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/slacknotify"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testapi"
@@ -31,6 +34,26 @@ const (
 	shutdownTimeout  = 10 * time.Second
 	deploymentWindow = 15 * time.Minute
 )
+
+// buildRevision 由部署脚本通过 -ldflags "-X main.buildRevision=<sha>" 注入；
+// 本地 go build/test 未注入时回退到 VCS build info，再回退 "dev"。
+var buildRevision string
+
+func resolveRevision() string {
+	if buildRevision != "" {
+		return buildRevision
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == "vcs.revision" {
+			return setting.Value
+		}
+	}
+	return "dev"
+}
 
 func main() {
 	logger := log.New(os.Stderr, "ps-devtools-mcp ", log.LstdFlags|log.LUTC)
@@ -77,16 +100,28 @@ func main() {
 		logger.Printf("test_redis=direct address=%q database=%d", config.TestRedisAddress, config.TestRedisDatabase)
 	}
 	redisService := testredis.NewService(redisClient, logger)
-	deployService := testdeploy.NewService(logger)
+	var notifier testdeploy.DeploymentNotifier
+	var smokeChecker *testdeploy.SmokeChecker
 	if config.SlackDeployWebhookURL != "" {
 		webhookClient := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		webhook, err := slacknotify.NewWebhook(config.SlackDeployWebhookURL, webhookClient)
 		if err != nil {
 			logger.Fatal(err)
 		}
-		deployService = testdeploy.NewServiceWithNotifier(webhook, logger)
+		notifier = webhook
 	}
+	if config.DeploySmokeConfig != "" {
+		smoke, err := testdeploy.LoadSmokeConfig(config.DeploySmokeConfig)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		smokeChecker = smoke
+	}
+	deployService := testdeploy.NewServiceWithOptions(nil, notifier, smokeChecker, logger)
 	deployManager := testdeploy.NewManager(deployService)
+	if config.DeployHistoryPath != "" {
+		deployManager = testdeploy.NewManagerWithHistory(deployService, config.DeployHistoryPath, logger)
+	}
 	defer func() {
 		// 自部署时脚本正在等 supervisorctl restart 完成，取消或等待部署
 		// goroutine 都会死锁或把脚本杀死在 stop/start 之间；部署脚本在独立
@@ -102,6 +137,15 @@ func main() {
 		TestLogs:       testlogs.Unavailable{},
 		TestBot:        testbot.Unavailable{},
 		TestDeploy:     deployService, TestDeployJobs: deployManager,
+		MCPInfo:     mcpinfo.NewService(mcpserver.Version, resolveRevision(), config.Transport, config.ListenAddress),
+		ProcessLogs: processlogs.Unavailable{},
+	}
+	if config.ProcessLogsConfig != "" {
+		logsConfig, err := processlogs.LoadConfig(config.ProcessLogsConfig)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		services.ProcessLogs = processlogs.NewService(logsConfig, logger)
 	}
 	if config.TestBotEnabled() {
 		botConfig, err := testbot.LoadConfig(config.TestBotConfig)

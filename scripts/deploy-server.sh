@@ -421,7 +421,11 @@ build_source() {
 				export GOPATH="/home/ecs-user/go"
 				export GOMODCACHE="$GOPATH/pkg/mod"
 				export GOCACHE="/home/ecs-user/.cache/go-build"
-				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/ps-devtools-mcp ./cmd/ps-devtools-mcp
+				# buildRevision feeds get_mcp_info so deployments can be verified
+				# against the running binary without a stdio probe.
+				CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+					-ldflags "-X main.buildRevision=$(git rev-parse HEAD)" \
+					-o bin/ps-devtools-mcp ./cmd/ps-devtools-mcp
 			)
 			;;
 	esac

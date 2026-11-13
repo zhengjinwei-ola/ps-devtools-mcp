@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,6 +56,7 @@ type DeploymentTask struct {
 	Stage        string                          `json:"stage"`
 	Revision     string                          `json:"revision,omitempty"`
 	Results      []ProcessDeploymentResult       `json:"results,omitempty"`
+	Smoke        *SmokeSummary                   `json:"smoke,omitempty"`
 	DurationMS   int64                           `json:"duration_ms,omitempty"`
 	Error        string                          `json:"error,omitempty"`
 	Slack        map[string]NotificationDelivery `json:"slack"`
@@ -89,16 +91,35 @@ type managedTask struct {
 }
 
 type Manager struct {
-	service *Service
-	mu      sync.RWMutex
-	wg      sync.WaitGroup
-	tasks   map[string]*managedTask
-	order   []string
-	limit   int
+	service   *Service
+	mu        sync.RWMutex
+	wg        sync.WaitGroup
+	tasks     map[string]*managedTask
+	order     []string
+	limit     int
+	history   *historyStore
+	persisted []DeploymentTask
+	logger    *log.Logger
 }
 
 func NewManager(service *Service) *Manager {
 	return &Manager{service: service, tasks: make(map[string]*managedTask), limit: defaultHistoryLimit}
+}
+
+// NewManagerWithHistory 在内存历史之外把终态任务落盘到 JSONL 文件，进程
+// 重启后加载回内存，使部署历史与 get_test_deployment_status 跨重启可查。
+// 落盘失败不阻塞部署，仅记录日志。
+func NewManagerWithHistory(service *Service, path string, logger *log.Logger) *Manager {
+	manager := &Manager{
+		service: service, tasks: make(map[string]*managedTask), limit: defaultHistoryLimit,
+		history: newHistoryStore(path, defaultHistoryLimit), logger: logger,
+	}
+	persisted, err := manager.history.Load()
+	if err != nil && logger != nil {
+		logger.Printf("deployment_history_load error=%q", err)
+	}
+	manager.persisted = persisted
+	return manager
 }
 
 func (m *Manager) Start(_ context.Context, input DeploymentInput) (StartDeploymentOutput, error) {
@@ -142,7 +163,7 @@ func (m *Manager) Start(_ context.Context, input DeploymentInput) (StartDeployme
 // 若取消任务上下文，SIGTERM 会把脚本杀死在 supervisorctl restart 的
 // stop/start 之间（自部署场景下进程因此停在 STOPPED）；若等待脚本结束，
 // 则与正在等进程重启完成的脚本互等死锁。代价是这些部署的终态 Slack 通知
-// 与内存历史随进程退出丢失，属已知取舍。
+// 随进程退出丢失；配置了历史落盘时终态任务仍可在重启后查询。
 func (m *Manager) ShutdownDetached() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -177,10 +198,22 @@ func (m *Manager) Recent(_ context.Context, input RecentDeploymentsInput) (Recen
 		return RecentDeploymentsOutput{}, errors.New("limit must be between 1 and 50")
 	}
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	result := make([]DeploymentTask, 0, limit)
+	seen := make(map[string]struct{}, limit)
 	for index := len(m.order) - 1; index >= 0 && len(result) < limit; index-- {
-		result = append(result, cloneTask(m.tasks[m.order[index]].task, false))
+		task := m.tasks[m.order[index]].task
+		seen[task.DeploymentID] = struct{}{}
+		result = append(result, cloneTask(task, false))
+	}
+	m.mu.RUnlock()
+	// 进程重启后内存任务为空，落盘历史补足列表；同 ID 去重。
+	for index := len(m.persisted) - 1; index >= 0 && len(result) < limit; index-- {
+		task := m.persisted[index]
+		if _, ok := seen[task.DeploymentID]; ok {
+			continue
+		}
+		seen[task.DeploymentID] = struct{}{}
+		result = append(result, cloneTask(task, false))
 	}
 	return RecentDeploymentsOutput{Deployments: result}, nil
 }
@@ -216,15 +249,18 @@ func (m *Manager) run(ctx context.Context, id string, input DeploymentInput) {
 		if event.Notification.Status == DeploymentDeploying {
 			appendTaskLog(&task.task, "编译完成，开始部署")
 		}
+		if event.Notification.Smoke != nil {
+			task.task.Smoke = event.Notification.Smoke
+		}
 		if isTerminal(event.Notification.Status) {
 			task.finalStatus = event.Notification.Status
 		}
 	})
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	task, ok := m.tasks[id]
 	if !ok {
+		m.mu.Unlock()
 		return
 	}
 	completedAt := time.Now().UTC()
@@ -239,6 +275,12 @@ func (m *Manager) run(ctx context.Context, id string, input DeploymentInput) {
 		task.task.Status = DeploymentCanceled
 		task.task.Stage = "canceled"
 		appendTaskLog(&task.task, "部署已取消")
+	} else if deployErr == nil && task.finalStatus == DeploymentDeployedUnhealthy {
+		// 部署脚本成功但健康探针失败：保留 deploy() 已通知的 unhealthy 终态，
+		// 不覆盖为 succeeded。
+		task.task.Status = DeploymentDeployedUnhealthy
+		task.task.Stage = "unhealthy"
+		appendTaskLog(&task.task, "部署完成，健康检查未通过")
 	} else if deployErr == nil {
 		task.task.Status = DeploymentSucceeded
 		task.task.Stage = "completed"
@@ -248,16 +290,39 @@ func (m *Manager) run(ctx context.Context, id string, input DeploymentInput) {
 		task.task.Stage = "failed"
 	}
 	task.cancel = nil
+	snapshot := cloneTask(task.task, true)
+	m.mu.Unlock()
+
+	// 终态任务落盘在锁外执行：文件 I/O 不持有任务锁，失败仅记日志。
+	if m.history != nil && isTerminal(snapshot.Status) {
+		if err := m.history.Append(snapshot); err != nil {
+			m.logHistoryError("append", snapshot.DeploymentID, err)
+		}
+	}
+}
+
+func (m *Manager) logHistoryError(action, id string, err error) {
+	if m.logger != nil {
+		m.logger.Printf("deployment_history_%s deployment=%s error=%q", action, id, err)
+	}
 }
 
 func (m *Manager) snapshot(id string) (DeploymentTask, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	task, ok := m.tasks[id]
-	if !ok {
-		return DeploymentTask{}, errors.New("deployment not found")
+	if ok {
+		snapshot := cloneTask(task.task, true)
+		m.mu.RUnlock()
+		return snapshot, nil
 	}
-	return cloneTask(task.task, true), nil
+	m.mu.RUnlock()
+	// 进程重启后内存任务为空，从落盘历史中查找。
+	for index := len(m.persisted) - 1; index >= 0; index-- {
+		if m.persisted[index].DeploymentID == id {
+			return cloneTask(m.persisted[index], true), nil
+		}
+	}
+	return DeploymentTask{}, errors.New("deployment not found")
 }
 
 func (m *Manager) pruneLocked() {
@@ -360,7 +425,7 @@ func truncateText(value string, limit int) string {
 
 func isTerminal(status DeploymentStatus) bool {
 	switch status {
-	case DeploymentSucceeded, DeploymentCompileFailed, DeploymentFailed, DeploymentCanceled:
+	case DeploymentSucceeded, DeploymentCompileFailed, DeploymentFailed, DeploymentCanceled, DeploymentDeployedUnhealthy:
 		return true
 	default:
 		return false

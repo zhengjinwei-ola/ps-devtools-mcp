@@ -71,13 +71,14 @@ type Runner interface {
 type DeploymentStatus string
 
 const (
-	DeploymentCompiling     DeploymentStatus = "compiling"
-	DeploymentDeploying     DeploymentStatus = "deploying"
-	DeploymentSucceeded     DeploymentStatus = "succeeded"
-	DeploymentCompileFailed DeploymentStatus = "compile_failed"
-	DeploymentFailed        DeploymentStatus = "failed"
-	DeploymentCanceled      DeploymentStatus = "canceled"
-	notificationTimeout                      = 5 * time.Second
+	DeploymentCompiling         DeploymentStatus = "compiling"
+	DeploymentDeploying         DeploymentStatus = "deploying"
+	DeploymentSucceeded         DeploymentStatus = "succeeded"
+	DeploymentCompileFailed     DeploymentStatus = "compile_failed"
+	DeploymentFailed            DeploymentStatus = "failed"
+	DeploymentCanceled          DeploymentStatus = "canceled"
+	DeploymentDeployedUnhealthy DeploymentStatus = "deployed_unhealthy"
+	notificationTimeout                          = 5 * time.Second
 )
 
 type DeploymentNotification struct {
@@ -86,6 +87,7 @@ type DeploymentNotification struct {
 	Processes []string
 	SkipTests bool
 	Duration  time.Duration
+	Smoke     *SmokeSummary
 }
 
 type NotificationDelivery struct {
@@ -170,22 +172,32 @@ type Service struct {
 	runner   Runner
 	logger   *log.Logger
 	notifier DeploymentNotifier
+	smoke    *SmokeChecker
 }
 
 func NewService(logger *log.Logger) *Service {
-	return &Service{runner: commandRunner{path: defaultScriptPath}, logger: logger}
+	return NewServiceWithOptions(nil, nil, nil, logger)
 }
 
 func NewServiceWithRunner(runner Runner, logger *log.Logger) *Service {
-	return &Service{runner: runner, logger: logger}
+	return NewServiceWithOptions(runner, nil, nil, logger)
 }
 
 func NewServiceWithNotifier(notifier DeploymentNotifier, logger *log.Logger) *Service {
-	return &Service{runner: commandRunner{path: defaultScriptPath}, notifier: notifier, logger: logger}
+	return NewServiceWithOptions(nil, notifier, nil, logger)
 }
 
 func NewServiceWithRunnerAndNotifier(runner Runner, notifier DeploymentNotifier, logger *log.Logger) *Service {
-	return &Service{runner: runner, notifier: notifier, logger: logger}
+	return NewServiceWithOptions(runner, notifier, nil, logger)
+}
+
+// NewServiceWithOptions 组装部署服务；runner 为 nil 时使用固定脚本路径，
+// notifier/smoke 为 nil 时分别关闭 Slack 通知与部署后健康探针。
+func NewServiceWithOptions(runner Runner, notifier DeploymentNotifier, smoke *SmokeChecker, logger *log.Logger) *Service {
+	if runner == nil {
+		runner = commandRunner{path: defaultScriptPath}
+	}
+	return &Service{runner: runner, logger: logger, notifier: notifier, smoke: smoke}
 }
 
 func (s *Service) ListServices(ctx context.Context, _ ListServicesInput) (ListServicesOutput, error) {
@@ -247,6 +259,7 @@ func (s *Service) deploy(ctx context.Context, input DeploymentInput, observe fun
 		s.notifyAndObserve(DeploymentNotification{Status: DeploymentDeploying, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests}, observe)
 	})
 	status := DeploymentSucceeded
+	var smoke *SmokeSummary
 	if errors.Is(ctx.Err(), context.Canceled) {
 		status = DeploymentCanceled
 	} else if err != nil {
@@ -254,8 +267,17 @@ func (s *Service) deploy(ctx context.Context, input DeploymentInput, observe fun
 		if deploying {
 			status = DeploymentFailed
 		}
+	} else if s.smoke != nil {
+		// 部署脚本成功后、终态通知前做健康探针：失败不回滚，仅把终态
+		// 置为 deployed_unhealthy，让“部署成功但服务不健康”在部署结果中可见。
+		if summary, configured := s.smoke.Check(ctx, input.Service); configured {
+			smoke = &summary
+			if !summary.OK {
+				status = DeploymentDeployedUnhealthy
+			}
+		}
 	}
-	s.notifyAndObserve(DeploymentNotification{Status: status, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests, Duration: time.Since(startedAt)}, observe)
+	s.notifyAndObserve(DeploymentNotification{Status: status, Service: input.Service, Processes: input.Processes, SkipTests: input.SkipTests, Duration: time.Since(startedAt), Smoke: smoke}, observe)
 	return output, err
 }
 

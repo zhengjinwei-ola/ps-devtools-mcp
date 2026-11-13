@@ -1,0 +1,9 @@
+{
+  "services": {
+    "ps-devtools-mcp": {
+      "url": "http://127.0.0.1:18081/healthz",
+      "expect_status": [200],
+      "timeout_ms": 5000
+    }
+  }
+}

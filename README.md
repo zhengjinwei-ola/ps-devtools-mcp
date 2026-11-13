@@ -10,12 +10,16 @@
 - `deploy_test_service`：兼容保留的同步部署入口；
 - `deploy oversea-server`：PHP 服务，部署 = 在 webroot 仓库执行 `git pull`（等价于运维 `sea` alias）同步代码后重启选中的 `xs.*` 进程组，无构建与备份回滚；
 - `start_test_deployment` / `get_test_deployment_status` / `get_test_deployment_logs` / `cancel_test_deployment`：异步启动、查询或取消部署任务；
-- `get_recent_deployments`：查看当前 MCP 进程内最近 50 条结构化部署记录；
+- `get_recent_deployments`：查看最近 50 条结构化部署记录；配置 `PS_MCP_DEPLOY_HISTORY_PATH` 后历史落盘，MCP 进程重启仍可查询；
 - `get_test_process_status` / `restart_test_process`：查询或重启白名单 Supervisor 进程。
+- `get_mcp_info`：查看 MCP 自身版本、构建 revision、传输方式、监听地址、PID 与运行时长；
+- `tail_test_process_logs`：读取白名单 Supervisor 进程 stdout/stderr 日志的尾部若干行（每行截断并脱敏）。
 - `list_testbot_endpoints` / `call_testbot_api`：自动登录配置的测试用户并调用预登记用户接口。
 - `call_test_readonly_api`：从 004 发起任意 HTTP/HTTPS 请求，支持自定义 URL、方法、参数、Header 和请求体。
 
-服务不提供 Shell 或任意文件路径。`call_test_readonly_api` 是仅供已认证使用者调试测试环境的通用 HTTP 客户端，可访问 004 能够连接的任意 HTTP/HTTPS 地址。部署与重启工具只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。异步任务脱离单次 HTTP 请求运行，同一服务只允许一个任务，历史仅保存在当前 MCP 进程内。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
+部署脚本成功但部署后健康探针失败时，任务终态为 `deployed_unhealthy`（不自动回滚）；探针按 `PS_MCP_DEPLOY_SMOKE_CONFIG` 配置（见 `config/deploy-smoke.example.json`），未配置的服务保持原行为。
+
+服务不提供 Shell 或任意文件路径。`call_test_readonly_api` 是仅供已认证使用者调试测试环境的通用 HTTP 客户端，可访问 004 能够连接的任意 HTTP/HTTPS 地址。`tail_test_process_logs` 是唯一的文件读取能力，文件路径与 glob 只来自服务端白名单配置（`PS_MCP_PROCESS_LOGS_CONFIG`，见 `config/process-logs.004.example.json`），不接受调用方传入路径。部署与重启工具只能调用 004 本机固定路径的部署脚本，并由脚本再次校验主机、服务、进程和目录白名单。异步任务脱离单次 HTTP 请求运行，同一服务只允许一个任务。数据库密码和 MCP Token 只能放在权限受限的部署环境文件中，禁止提交到 Git。
 
 TestBot 的手机号和密码仅从环境变量读取，业务 Token 只缓存在进程内存。接口必须在
 `config/testbot.test.json` 中预登记；副作用接口还要求 `confirm_side_effect=true`。
@@ -63,6 +67,16 @@ PS_TESTBOT_MOBILE=<secret>
 PS_TESTBOT_PASSWORD=<secret>
 PS_MCP_SLACK_DEPLOY_WEBHOOK_URL=https://hooks.slack.com/triggers/<secret>
 ```
+
+可选功能配置（默认关闭）：
+
+```text
+PS_MCP_DEPLOY_HISTORY_PATH=/home/ecs-user/webroot/ps-devtools-mcp/data/deploy-history.jsonl
+PS_MCP_DEPLOY_SMOKE_CONFIG=/home/ecs-user/webroot/ps-devtools-mcp/config/deploy-smoke.json
+PS_MCP_PROCESS_LOGS_CONFIG=/home/ecs-user/webroot/ps-devtools-mcp/config/process-logs.004.json
+```
+
+分别启用部署历史落盘、部署后冒烟检查（失败终态 `deployed_unhealthy`）与 Supervisor 进程日志尾部读取。示例见 `config/service.env.example` 与 `config/` 下同名示例文件。
 
 配置 Slack Incoming Webhook（`/services/`）或 Workflow Trigger（`/triggers/`）后，同步和异步部署都会发送编译、部署及最终结果通知。异步状态会分别记录各阶段 Slack 投递的 `sent`、`failed` 或 `disabled` 状态。Webhook URL 属于密钥，只能放在权限受限的部署环境文件中；通知失败不改变部署结果。
 
@@ -124,6 +138,7 @@ bearer_token_env_var = "PS_DEVTOOLS_REMOTE_TOKEN"
 - SQL：仅 `SELECT`、`SHOW`、`DESCRIBE`、`DESC`、只读 `EXPLAIN/WITH`；`SELECT/WITH` 强制数字 `LIMIT`。
 - Redis：拒绝写命令和 `KEYS`、`HGETALL`、`SMEMBERS`、`INFO` 等无界命令；范围/扫描最多 500 项。
 - 日志：source 与路径只由服务端配置；查询按字面量匹配，限制文件数、扫描量、返回条数和输出大小，并对敏感内容脱敏。
+- 进程日志尾部：source 与文件路径只由服务端白名单配置（glob 支持多实例进程）；限制每次读取的文件数、行数与单行字节数，逐行截断并脱敏，不接受调用方传入文件路径。
 - HTTP MCP：必须使用 Bearer Token，默认只监听 loopback，公网访问必须经过可信 HTTPS 反向代理。
 - 通用 HTTP 调用：不限制目标地址、方法、参数、Header 或请求体；保留 12 秒超时、64 KiB 请求体、2 MiB 响应上限和响应敏感字段脱敏。
 

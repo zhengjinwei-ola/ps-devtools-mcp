@@ -73,11 +73,20 @@ func formatMessage(event testdeploy.DeploymentNotification) string {
 		status = "🚨 *【部署失败】新版本上线未完成，旧版本保护机制已生效*"
 	case testdeploy.DeploymentCanceled:
 		status = "⏹️ *【部署取消】任务已终止，旧版本保护机制已生效*"
+	case testdeploy.DeploymentDeployedUnhealthy:
+		status = "🩺 *【部署完成，健康检查未通过】新版本已重启但健康探针失败，请检查服务状态*"
 	}
 	message := fmt.Sprintf("%s\n• 服务：`%s`\n• 进程：`%s`",
 		status, event.Service, strings.Join(event.Processes, ", "))
-	if event.Status == testdeploy.DeploymentSucceeded || event.Status == testdeploy.DeploymentCompileFailed || event.Status == testdeploy.DeploymentFailed || event.Status == testdeploy.DeploymentCanceled {
+	if event.Status == testdeploy.DeploymentSucceeded || event.Status == testdeploy.DeploymentCompileFailed || event.Status == testdeploy.DeploymentFailed || event.Status == testdeploy.DeploymentCanceled || event.Status == testdeploy.DeploymentDeployedUnhealthy {
 		message += fmt.Sprintf("\n• 耗时：`%s`", event.Duration.Round(100*time.Millisecond))
+	}
+	if event.Smoke != nil {
+		if event.Smoke.OK {
+			message += fmt.Sprintf("\n• 健康检查：`%s → %d`", event.Smoke.URL, event.Smoke.StatusCode)
+		} else {
+			message += fmt.Sprintf("\n• 健康检查：`%s → 失败`（%s）", event.Smoke.URL, event.Smoke.Error)
+		}
 	}
 	return message
 }

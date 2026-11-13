@@ -38,6 +38,9 @@ type Config struct {
 	TestBotMobile         string
 	TestBotPassword       string
 	SlackDeployWebhookURL string
+	DeployHistoryPath     string
+	DeploySmokeConfig     string
+	ProcessLogsConfig     string
 }
 
 func Parse(args []string, getenv func(string) string) (Config, error) {
@@ -74,6 +77,9 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 		TestBotMobile:         strings.TrimSpace(getenv("PS_TESTBOT_MOBILE")),
 		TestBotPassword:       getenv("PS_TESTBOT_PASSWORD"),
 		SlackDeployWebhookURL: strings.TrimSpace(getenv("PS_MCP_SLACK_DEPLOY_WEBHOOK_URL")),
+		DeployHistoryPath:     strings.TrimSpace(getenv("PS_MCP_DEPLOY_HISTORY_PATH")),
+		DeploySmokeConfig:     strings.TrimSpace(getenv("PS_MCP_DEPLOY_SMOKE_CONFIG")),
+		ProcessLogsConfig:     strings.TrimSpace(getenv("PS_MCP_PROCESS_LOGS_CONFIG")),
 	}
 	if raw := strings.TrimSpace(getenv("PS_MCP_AUTH_TOKENS_JSON")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &config.AuthTokens); err != nil {
@@ -153,6 +159,15 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 		if config.TestBotConfig == "" || config.TestBotArea == "" || config.TestBotMobile == "" || config.TestBotPassword == "" {
 			return Config{}, fmt.Errorf("PS_MCP_TESTBOT_CONFIG, PS_TESTBOT_AREA, PS_TESTBOT_MOBILE and PS_TESTBOT_PASSWORD must be configured together")
 		}
+	}
+	if config.DeployHistoryPath != "" && !strings.HasPrefix(config.DeployHistoryPath, "/") {
+		return Config{}, fmt.Errorf("PS_MCP_DEPLOY_HISTORY_PATH must be an absolute path")
+	}
+	if config.DeploySmokeConfig != "" && !strings.HasPrefix(config.DeploySmokeConfig, "/") {
+		return Config{}, fmt.Errorf("PS_MCP_DEPLOY_SMOKE_CONFIG must be an absolute path")
+	}
+	if config.ProcessLogsConfig != "" && !strings.HasPrefix(config.ProcessLogsConfig, "/") {
+		return Config{}, fmt.Errorf("PS_MCP_PROCESS_LOGS_CONFIG must be an absolute path")
 	}
 	return config, nil
 }

@@ -2,9 +2,13 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/mcpinfo"
+	"github.com/olaola-chat/ps-devtools-mcp/internal/processlogs"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdb"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testdeploy"
 	"github.com/olaola-chat/ps-devtools-mcp/internal/testredis"
@@ -20,6 +24,15 @@ type stubRedisService struct {
 
 type stubDeployService struct{}
 type stubDeploymentJobService struct{}
+type stubMCPInfoService struct{}
+type stubProcessLogService struct{}
+
+func (stubMCPInfoService) Get(context.Context, mcpinfo.Input) (mcpinfo.Info, error) {
+	return mcpinfo.Info{Version: "v0.4.0", Revision: "abc1234", PID: 1234}, nil
+}
+func (stubProcessLogService) Tail(context.Context, processlogs.TailInput) (processlogs.TailOutput, error) {
+	return processlogs.TailOutput{Files: []processlogs.FileTail{{File: "/home/ecs-user/log/x.stdout.log", Lines: []string{"ok"}}}}, nil
+}
 
 func (stubDeployService) ListServices(context.Context, testdeploy.ListServicesInput) (testdeploy.ListServicesOutput, error) {
 	return testdeploy.ListServicesOutput{}, nil
@@ -111,7 +124,7 @@ func TestQueryTestDBToolCanBeCalledOverMCP(t *testing.T) {
 		"start_test_deployment": false, "get_test_deployment_status": false,
 		"get_test_deployment_logs": false, "get_recent_deployments": false,
 		"cancel_test_deployment": false, "get_test_process_status": false,
-		"restart_test_process": false,
+		"restart_test_process": false, "get_mcp_info": false, "tail_test_process_logs": false,
 	}
 	for tool, toolErr := range clientSession.Tools(ctx, nil) {
 		if toolErr != nil {
@@ -154,6 +167,46 @@ func TestQueryTestRedisToolCanBeCalledOverMCP(t *testing.T) {
 	}
 	if result.IsError || redisService.calls != 1 {
 		t.Fatalf("result error = %v, service calls = %d", result.IsError, redisService.calls)
+	}
+}
+
+func TestMCPInfoAndProcessLogToolsCanBeCalledOverMCP(t *testing.T) {
+	ctx := context.Background()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := New(Services{
+		TestDeploy: stubDeployService{}, TestDeployJobs: stubDeploymentJobService{},
+		MCPInfo: stubMCPInfoService{}, ProcessLogs: stubProcessLogService{},
+	}).Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.1.0"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientSession.Close()
+
+	info, err := clientSession.CallTool(ctx, &mcp.CallToolParams{Name: "get_mcp_info", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	infoJSON, marshalErr := json.Marshal(info.StructuredContent)
+	if info.IsError || marshalErr != nil || !strings.Contains(string(infoJSON), `"revision":"abc1234"`) {
+		t.Fatalf("get_mcp_info result = %s (%v)", infoJSON, marshalErr)
+	}
+	tail, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "tail_test_process_logs",
+		Arguments: map[string]any{"source": "ps-devtools-mcp", "lines": float64(5)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tailJSON, marshalErr := json.Marshal(tail.StructuredContent)
+	if tail.IsError || marshalErr != nil || !strings.Contains(string(tailJSON), "/home/ecs-user/log/x.stdout.log") {
+		t.Fatalf("tail_test_process_logs result = %s (%v)", tailJSON, marshalErr)
 	}
 }
 
