@@ -137,25 +137,22 @@ func (m *Manager) Start(_ context.Context, input DeploymentInput) (StartDeployme
 	return StartDeploymentOutput{DeploymentID: id, Status: DeploymentCompiling}, nil
 }
 
-func (m *Manager) Close(ctx context.Context) error {
+// ShutdownDetached 返回仍在运行的部署 ID，不取消、不等待。
+// 部署脚本通过 Setpgid 运行在独立进程组，天然跨越 MCP 进程重启；进程退出时
+// 若取消任务上下文，SIGTERM 会把脚本杀死在 supervisorctl restart 的
+// stop/start 之间（自部署场景下进程因此停在 STOPPED）；若等待脚本结束，
+// 则与正在等进程重启完成的脚本互等死锁。代价是这些部署的终态 Slack 通知
+// 与内存历史随进程退出丢失，属已知取舍。
+func (m *Manager) ShutdownDetached() []string {
 	m.mu.Lock()
-	for _, task := range m.tasks {
-		if !isTerminal(task.task.Status) && task.cancel != nil {
-			task.cancel()
+	defer m.mu.Unlock()
+	running := make([]string, 0, len(m.tasks))
+	for _, id := range m.order {
+		if task := m.tasks[id]; task != nil && !isTerminal(task.task.Status) {
+			running = append(running, id)
 		}
 	}
-	m.mu.Unlock()
-	done := make(chan struct{})
-	go func() {
-		m.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return running
 }
 
 func (m *Manager) Get(_ context.Context, input DeploymentIDInput) (DeploymentStatusOutput, error) {

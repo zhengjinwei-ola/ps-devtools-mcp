@@ -85,7 +85,7 @@ func TestManagerRejectsConcurrentDeploymentAndCancelsRunningTask(t *testing.T) {
 	}
 }
 
-func TestManagerCloseCancelsAndWaitsForRunningTask(t *testing.T) {
+func TestManagerShutdownDetachedLeavesRunningDeployment(t *testing.T) {
 	runner := &controlledRunner{started: make(chan struct{}), release: make(chan struct{})}
 	manager := NewManager(NewServiceWithRunner(runner, log.New(io.Discard, "", 0)))
 	started, err := manager.Start(context.Background(), DeploymentInput{Service: "psl-be-partystar", Processes: []string{"rpc"}})
@@ -93,17 +93,21 @@ func TestManagerCloseCancelsAndWaitsForRunningTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-runner.started
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := manager.Close(ctx); err != nil {
-		t.Fatal(err)
+	detached := manager.ShutdownDetached()
+	if len(detached) != 1 || detached[0] != started.DeploymentID {
+		t.Fatalf("detached = %#v", detached)
 	}
 	output, err := manager.Get(context.Background(), DeploymentIDInput{DeploymentID: started.DeploymentID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Deployment.Status != DeploymentCanceled {
-		t.Fatalf("task = %#v", output.Deployment)
+	if isTerminal(output.Deployment.Status) {
+		t.Fatalf("shutdown must not cancel a running deployment: %#v", output.Deployment)
+	}
+	close(runner.release)
+	task := waitForTerminalTask(t, manager, started.DeploymentID)
+	if task.Status != DeploymentSucceeded {
+		t.Fatalf("task = %#v", task)
 	}
 }
 

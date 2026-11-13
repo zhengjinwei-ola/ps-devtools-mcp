@@ -25,12 +25,11 @@ import (
 )
 
 const (
-	defaultQueryURL           = "http://127.0.0.1/gk/v1/external/testEnvQuery"
-	defaultTimeout            = 12 * time.Second
-	defaultMaxBodyMB          = 2
-	shutdownTimeout           = 10 * time.Second
-	deploymentWindow          = 15 * time.Minute
-	deploymentShutdownTimeout = time.Minute
+	defaultQueryURL  = "http://127.0.0.1/gk/v1/external/testEnvQuery"
+	defaultTimeout   = 12 * time.Second
+	defaultMaxBodyMB = 2
+	shutdownTimeout  = 10 * time.Second
+	deploymentWindow = 15 * time.Minute
 )
 
 func main() {
@@ -89,10 +88,11 @@ func main() {
 	}
 	deployManager := testdeploy.NewManager(deployService)
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), deploymentShutdownTimeout)
-		defer cancel()
-		if err := deployManager.Close(ctx); err != nil {
-			logger.Printf("deployment_manager_shutdown error=%q", err)
+		// 自部署时脚本正在等 supervisorctl restart 完成，取消或等待部署
+		// goroutine 都会死锁或把脚本杀死在 stop/start 之间；部署脚本在独立
+		// 进程组中继续执行，日志提示其 ID 便于事后排查。
+		for _, id := range deployManager.ShutdownDetached() {
+			logger.Printf("deployment_manager_shutdown action=detached deployment=%s", id)
 		}
 	}()
 	services := mcpserver.Services{
